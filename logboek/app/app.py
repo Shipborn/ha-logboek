@@ -21,7 +21,7 @@ import requests
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 from PIL import Image, ImageOps
 
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("logboek")
@@ -302,7 +302,8 @@ def load_images(files):
         except Exception as e:  # noqa: BLE001
             log.warning("Foto %s niet leesbaar: %s", fs.filename, e)
             abort(400, f"Kan foto '{fs.filename}' niet lezen. Gebruik JPEG of PNG "
-                       "(op iPhone: Instellingen › Camera › Formaten › Meest compatibel).")
+                       "(iPhone: Instellingen › Camera › Formaten › Meest compatibel; "
+                       "Samsung: Camera › Instellingen › Geavanceerde opties › zet HEIF-foto's uit).")
     return images
 
 
@@ -440,6 +441,7 @@ def api_config():
         motoruren=engine_hours(),
         engine_entity=text(OPT.get("engine_hours_entity")),
         mqtt=bool(MQTT and MQTT.connected),
+        photo_max_px=int(OPT.get("photo_max_px") or 0) or None,
         version=VERSION,
     )
 

@@ -23,7 +23,7 @@ Onderhoudslogboek met foto's en terugkerende onderhoudstaken, als paneel in de H
 
 ## Gebruik
 
-- **Logboek**: tik op **+** voor een nieuwe logregel. Met **Foto toevoegen** kun je op je telefoon direct de camera openen of foto's uit je galerij kiezen, ook meerdere tegelijk. Tik op een regel om hem te bewerken. Tik op een foto om hem groot te bekijken. Bij **Bestede tijd** vul je in hoe lang het werk duurde, bijvoorbeeld `1:30` of `1,5` (uur) of `45 min`. Elke logregel toont ook wanneer hij is opgeslagen.
+- **Logboek**: tik op **+** voor een nieuwe logregel. Met **Foto maken** open je de camera, met **Uit galerij** kies je bestaande foto's (ook meerdere tegelijk). Foto's worden op de telefoon al verkleind, zodat het uploaden snel gaat. Tik op een regel om hem te bewerken. Tik op een foto om hem groot te bekijken. Bij **Bestede tijd** vul je in hoe lang het werk duurde, bijvoorbeeld `1:30` of `1,5` (uur) of `45 min`. Elke logregel toont ook wanneer hij is opgeslagen.
 - **Taken**: terugkerend onderhoud met een interval in dagen, motoruren of beide (wat het eerst komt). Met **Uitgevoerd** maak je een logregel aan die aan de taak gekoppeld is, en daarmee start de teller opnieuw.
 - Tik op een taak voor de **geschiedenis**: alle keren dat hij is uitgevoerd, met de tussenpozen in dagen en motoruren, totale kosten en tijd, foto's en de notitie van de taak. Vanuit daar kun je een logregel openen, de taak bewerken of hem als uitgevoerd loggen. Oude logregels koppel je aan een taak door ze te bewerken en de taak te kiezen.
 - Een nieuwe taak staat op **Nog niet gelogd** tot je de eerste keer logt. Zet dan de datum van de laatste keer dat het onderhoud gedaan is.
@@ -67,5 +67,7 @@ automation:
 ## Problemen
 
 - **Foto kan niet gelezen worden (iPhone)**: de browser zet HEIC-foto's meestal zelf om naar JPEG. Lukt dat niet, zet dan **Instellingen › Camera › Formaten** op **Meest compatibel**.
+- **Foto kan niet gelezen worden (Samsung)**: zet in de Camera-app **Instellingen › Geavanceerde opties › HEIF-foto's** uit.
+- **Camera opent niet in de Home Assistant-app**: geef de app toestemming voor de camera (Android: **Instellingen › Apps › Home Assistant › Machtigingen**), of kies **Uit galerij**.
 - **Geen sensoren in HA**: kijk in het **Logboek**-tabblad van de add-on. Daar staat of de MQTT-verbinding gelukt is.
 - **Motoruren worden niet getoond**: controleer of `engine_hours_entity` bestaat en een getal als status heeft.
