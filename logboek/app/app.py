@@ -15,13 +15,13 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import requests
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 from PIL import Image, ImageOps
 
-VERSION = "0.3.1"
+VERSION = "0.4.0"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("logboek")
@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS entries (
     kosten REAL,
     uitgevoerd_door TEXT,
     task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+    duur_minuten INTEGER,
     created_at TEXT,
     updated_at TEXT
 );
@@ -159,6 +160,9 @@ def init_db():
     with get_db() as conn:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(entries)")}
+        if "duur_minuten" not in cols:
+            conn.execute("ALTER TABLE entries ADD COLUMN duur_minuten INTEGER")
         if conn.execute("SELECT COUNT(*) FROM categories").fetchone()[0] == 0:
             # eerste start: vullen met de categorieën uit de instellingen + alles wat al gebruikt is
             names = list(OPT.get("categories") or [])
@@ -179,7 +183,8 @@ def category_names(conn):
 
 
 def now():
-    return datetime.now().isoformat(timespec="seconds")
+    # UTC met offset: de container heeft geen tijdzonedata, de browser rekent om naar lokale tijd
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 # --------------------------------------------------------------------------- Home Assistant
@@ -221,6 +226,30 @@ def text(value):
     return s or None
 
 
+def minutes(value):
+    """Bestede tijd naar minuten: '1:30', '1,5' (uur), '2u' of '45 min'."""
+    s = (value or "").strip().lower().replace(" ", "")
+    if s == "":
+        return None
+    try:
+        if ":" in s:
+            h, m = s.split(":", 1)
+            total = int(h or 0) * 60 + int(m or 0)
+        elif s.endswith(("min", "m")):
+            total = float(s.rstrip("mni").replace(",", "."))
+        else:
+            total = float(s.rstrip("uh").replace(",", ".")) * 60
+    except ValueError:
+        abort(400, f"Ongeldige bestede tijd: {value} (gebruik bijv. 1:30 of 1,5)")
+    if total < 0:
+        abort(400, "Bestede tijd kan niet negatief zijn")
+    return round(total)
+
+
+def fmt_minutes(m):
+    return "" if m is None else f"{m // 60}:{m % 60:02d}"
+
+
 def entry_from_form(form):
     titel = text(form.get("titel"))
     if not titel:
@@ -239,6 +268,7 @@ def entry_from_form(form):
         "motoruren": num(form.get("motoruren")),
         "kosten": num(form.get("kosten")),
         "uitgevoerd_door": text(form.get("uitgevoerd_door")),
+        "duur_minuten": minutes(form.get("duur")),
         "task_id": int(task_id) if task_id else None,
     }
 
@@ -441,9 +471,9 @@ def api_entry_create():
     with get_db() as conn:
         cur = conn.execute(
             "INSERT INTO entries (datum, categorie, titel, omschrijving, motoruren, kosten, "
-            "uitgevoerd_door, task_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "uitgevoerd_door, duur_minuten, task_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (data["datum"], data["categorie"], data["titel"], data["omschrijving"], data["motoruren"],
-             data["kosten"], data["uitgevoerd_door"], data["task_id"], now(), now()),
+             data["kosten"], data["uitgevoerd_door"], data["duur_minuten"], data["task_id"], now(), now()),
         )
         eid = cur.lastrowid
         save_images(conn, eid, images)
@@ -459,9 +489,9 @@ def api_entry_update(eid):
     with get_db() as conn:
         cur = conn.execute(
             "UPDATE entries SET datum=?, categorie=?, titel=?, omschrijving=?, motoruren=?, kosten=?, "
-            "uitgevoerd_door=?, task_id=?, updated_at=? WHERE id=?",
+            "uitgevoerd_door=?, duur_minuten=?, task_id=?, updated_at=? WHERE id=?",
             (data["datum"], data["categorie"], data["titel"], data["omschrijving"], data["motoruren"],
-             data["kosten"], data["uitgevoerd_door"], data["task_id"], now(), eid),
+             data["kosten"], data["uitgevoerd_door"], data["duur_minuten"], data["task_id"], now(), eid),
         )
         if cur.rowcount == 0:
             abort(404, "Logregel niet gevonden")
@@ -621,13 +651,14 @@ def api_export():
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
     w.writerow(["Datum", "Categorie", "Titel", "Taak", "Omschrijving", "Motoruren", "Kosten",
-                "Uitgevoerd door", "Foto's"])
+                "Uitgevoerd door", "Bestede tijd (u:mm)", "Opgeslagen", "Foto's"])
     for r in rows:
         w.writerow([
             r["datum"], r["categorie"] or "", r["titel"], r["taak_naam"] or "", r["omschrijving"] or "",
             "" if r["motoruren"] is None else str(r["motoruren"]).replace(".", ","),
             "" if r["kosten"] is None else f"{r['kosten']:.2f}".replace(".", ","),
-            r["uitgevoerd_door"] or "", ", ".join(p["bestand"] for p in r["fotos"]),
+            r["uitgevoerd_door"] or "", fmt_minutes(r["duur_minuten"]), r["created_at"] or "",
+            ", ".join(p["bestand"] for p in r["fotos"]),
         ])
     return Response(
         "\ufeff" + buf.getvalue(),
