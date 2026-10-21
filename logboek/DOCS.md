@@ -34,6 +34,7 @@ Onderhoudslogboek met foto's en terugkerende onderhoudstaken, als paneel in de H
 
 - Database: `/data/logboek.db` (in de back-up van de add-on).
 - Foto's: `/share/logboek/photos` (in een volledige back-up, en via Samba bereikbaar).
+- Kopie van de database: `/share/logboek/backup/logboek.db`, bijgewerkt na elke wijziging. Start de app zonder eigen database (bijvoorbeeld na een herinstallatie), dan neemt hij deze kopie automatisch over.
 
 ## Sensoren in Home Assistant
 

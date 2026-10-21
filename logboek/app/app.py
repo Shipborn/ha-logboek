@@ -21,7 +21,7 @@ import requests
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 from PIL import Image, ImageOps
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("logboek")
@@ -64,6 +64,9 @@ OPT = load_options()
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(PHOTO_DIR, exist_ok=True)
 DB_PATH = os.path.join(DATA_DIR, "logboek.db")
+BACKUP_DIR = os.environ.get("BACKUP_DIR", os.path.join(os.path.dirname(PHOTO_DIR), "backup"))
+BACKUP_PATH = os.path.join(BACKUP_DIR, "logboek.db")
+BACKUP_LOCK = threading.Lock()
 MQTT = None  # wordt gezet in main()
 
 # --------------------------------------------------------------------------- database
@@ -121,7 +124,38 @@ def get_db():
         conn.close()
 
 
+def backup_db():
+    """Kopie van de database naar /share, zodat een nieuwe installatie hem kan overnemen."""
+    with BACKUP_LOCK:
+        try:
+            os.makedirs(BACKUP_DIR, exist_ok=True)
+            tmp = BACKUP_PATH + ".tmp"
+            src = sqlite3.connect(DB_PATH, timeout=15)
+            dst = sqlite3.connect(tmp)
+            with dst:
+                src.backup(dst)
+            dst.close()
+            src.close()
+            os.replace(tmp, BACKUP_PATH)
+        except Exception:  # noqa: BLE001
+            log.exception("Back-up naar %s mislukt", BACKUP_PATH)
+
+
+def import_backup_if_new():
+    """Nieuwe installatie (geen database) + back-up in /share → back-up overnemen."""
+    if os.path.exists(DB_PATH) or not os.path.exists(BACKUP_PATH):
+        return
+    src = sqlite3.connect(BACKUP_PATH)
+    dst = sqlite3.connect(DB_PATH)
+    with dst:
+        src.backup(dst)
+    dst.close()
+    src.close()
+    log.info("Database overgenomen uit %s", BACKUP_PATH)
+
+
 def init_db():
+    import_backup_if_new()
     with get_db() as conn:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
@@ -336,6 +370,7 @@ def all_task_status(conn, hours_now):
 
 
 def changed():
+    threading.Thread(target=backup_db, daemon=True).start()
     if MQTT:
         threading.Thread(target=MQTT.publish_all, daemon=True).start()
 
@@ -455,6 +490,7 @@ def api_photo_delete(pid):
             abort(404, "Foto niet gevonden")
         conn.execute("DELETE FROM photos WHERE id = ?", (pid,))
     remove_photo_files(rows)
+    changed()
     return jsonify(ok=True)
 
 
@@ -533,6 +569,7 @@ def api_category_create():
             abort(400, f"Categorie '{naam}' bestaat al")
         nxt = conn.execute("SELECT COALESCE(MAX(volgorde), 0) + 1 FROM categories").fetchone()[0]
         cid = conn.execute("INSERT INTO categories (naam, volgorde) VALUES (?, ?)", (naam, nxt)).lastrowid
+    changed()
     return jsonify(id=cid), 201
 
 
@@ -560,6 +597,7 @@ def api_category_order():
     with get_db() as conn:
         for i, cid in enumerate(ids, start=1):
             conn.execute("UPDATE categories SET volgorde = ? WHERE id = ?", (i, int(cid)))
+    changed()
     return jsonify(ok=True)
 
 
@@ -772,6 +810,7 @@ def periodic_refresh():
 
 if __name__ == "__main__":
     init_db()
+    backup_db()
     MQTT = start_mqtt()
     threading.Thread(target=periodic_refresh, daemon=True).start()
     from waitress import serve
