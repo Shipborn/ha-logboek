@@ -7,7 +7,7 @@ Home Assistant-app (vroeger "add-on") `logboek`: onderhoudslogboek met foto's en
 - `logboek/config.yaml` – app-manifest. **Verhoog `version` bij elke wijziging** (ook `VERSION` in `logboek/app/app.py`), anders biedt HA geen update aan.
 - `logboek/Dockerfile` – bewust `FROM alpine:3.22` i.p.v. `ARG BUILD_FROM`: de Supervisor van de gebruiker geeft `BUILD_FROM` niet mee, dat brak de build.
 - `logboek/app/app.py` – Flask + waitress op poort 8099 (ingress). SQLite in `/data/logboek.db`, foto's in `/share/logboek/photos` (JPEG + `_t.jpg`-thumbnail, EXIF-rotatie, verkleind tot `photo_max_px`).
-- `logboek/app/static/index.html` – volledige frontend in één bestand, vanilla JS, relatieve URL's (`api/...`) vanwege ingress. Tabbladen: Logboek, Taken (met geschiedenisdialoog per taak), Categorieën.
+- `logboek/app/static/index.html` – volledige frontend in één bestand, vanilla JS, relatieve URL's (`api/...`) vanwege ingress. Tabbladen: Logboek, Taken (met geschiedenisdialoog per taak), Categorieën (klik → dialoog met alle logregels van die categorie). Beide dialogen delen `tlItem`/`tlClick` voor de tijdlijn.
 - `logboek/DOCS.md` – gebruikersdocumentatie (getoond in HA).
 
 ## Gedrag

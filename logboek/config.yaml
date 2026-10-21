@@ -1,5 +1,5 @@
 name: Logboek
-version: "0.4.1"
+version: "0.5.0"
 slug: logboek
 description: Onderhoudslogboek met foto's en onderhoudstaken (bijv. voor een boot)
 url: "https://github.com/Shipborn/ha-logboek"

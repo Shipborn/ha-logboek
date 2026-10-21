@@ -27,7 +27,7 @@ Onderhoudslogboek met foto's en terugkerende onderhoudstaken, als paneel in de H
 - **Taken**: terugkerend onderhoud met een interval in dagen, motoruren of beide (wat het eerst komt). Met **Uitgevoerd** maak je een logregel aan die aan de taak gekoppeld is, en daarmee start de teller opnieuw.
 - Tik op een taak voor de **geschiedenis**: alle keren dat hij is uitgevoerd, met de tussenpozen in dagen en motoruren, totale kosten en tijd, foto's en de notitie van de taak. Vanuit daar kun je een logregel openen, de taak bewerken of hem als uitgevoerd loggen. Oude logregels koppel je aan een taak door ze te bewerken en de taak te kiezen.
 - Een nieuwe taak staat op **Nog niet gelogd** tot je de eerste keer logt. Zet dan de datum van de laatste keer dat het onderhoud gedaan is.
-- **Categorieën**: toevoegen, hernoemen (bestaande logregels en taken gaan mee), volgorde aanpassen met ↑/↓ en verwijderen.
+- **Categorieën**: tik op een categorie om al zijn logregels te zien, met totale kosten en tijd. Daar kun je ook direct een nieuwe logregel in die categorie maken. Verder: toevoegen, hernoemen (bestaande logregels en taken gaan mee), volgorde aanpassen met ↑/↓ en verwijderen.
 - **CSV exporteren** levert een bestand dat direct in Excel opent.
 
 ## Opslag en back-up

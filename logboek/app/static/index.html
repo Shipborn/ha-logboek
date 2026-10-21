@@ -89,7 +89,7 @@ p.hint{margin:0}
 #lightbox .close{position:fixed;top:12px;right:12px;border:0;background:rgba(255,255,255,.15);color:#fff;font-size:24px;width:42px;height:42px;border-radius:50%;cursor:pointer}
 .catadd{display:flex;gap:8px;margin-bottom:12px}
 .chev{color:var(--muted);font-size:22px;line-height:1;align-self:center}
-#histDlg .dbody{display:block}
+#histDlg .dbody, #catDlg .dbody{display:block}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:14px}
 .stat{background:var(--chip);border-radius:10px;padding:8px 10px}
 .stat b{display:block;font-size:17px}
@@ -103,7 +103,8 @@ p.hint{margin:0}
 .tl .gap{font-size:12px;color:var(--muted);font-weight:600}
 .tl .full-desc{font-size:14px;color:var(--muted);white-space:pre-line;margin:2px 0 0}
 .catrow{display:flex;align-items:center;gap:8px;cursor:default;padding:8px 10px}
-.catrow .info{flex:1;min-width:0}
+.catrow .info{flex:1;min-width:0;cursor:pointer}
+.catrow .info:hover .name{text-decoration:underline}
 .catrow .name{font-weight:600;overflow-wrap:anywhere}
 .catrow .use{color:var(--muted);font-size:12px}
 .catrow input{flex:1}
@@ -201,6 +202,17 @@ p.hint{margin:0}
       <button type="button" class="btn danger left" id="taskDelete" hidden>Verwijderen</button>
       <button type="button" class="btn" data-close>Annuleren</button>
       <button type="submit" class="btn primary">Opslaan</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Logregels per categorie -->
+<dialog id="catDlg">
+  <form method="dialog">
+    <div class="dhead"><h2 id="catTitle">Categorie</h2><button type="button" class="x" data-close>×</button></div>
+    <div class="dbody" id="catBody"></div>
+    <div class="dfoot">
+      <button type="button" class="btn primary" id="catNew">Nieuwe logregel</button>
     </div>
   </form>
 </dialog>
@@ -565,9 +577,17 @@ async function renderHistory() {
     ${t.notitie ? `<p class="hnote">${esc(t.notitie)}</p>` : ''}
     ${list.length ? `<ul class="tl">${list.map(e => {
       const g = gap[e.id];
-      const gapTxt = g ? `+${g.d} dagen${g.h != null ? ` · +${fmtNum(g.h)} u` : ''} sinds vorige` : 'eerste keer gelogd';
-      return `<li data-id="${e.id}">
-        <div class="gap">${gapTxt}</div>
+      return tlItem(e, g ? `+${g.d} dagen${g.h != null ? ` · +${fmtNum(g.h)} u` : ''} sinds vorige` : 'eerste keer gelogd');
+    }).join('')}</ul>`
+    : `<div class="empty">Nog niet uitgevoerd.<br>Tik op <b>Uitgevoerd</b> om de eerste keer te loggen.</div>`}
+`;
+  $('#histBody')._list = list;
+}
+
+// één logregel in een tijdlijn (taakgeschiedenis en categorie)
+function tlItem(e, top) {
+  return `<li data-id="${e.id}">
+        ${top ? `<div class="gap">${top}</div>` : ''}
         <div class="meta"><span>${fmtDate(e.datum)}</span>
           ${e.motoruren != null ? `<span>${fmtNum(e.motoruren)} u</span>` : ''}
           ${e.kosten != null ? `<span>${fmtEur(e.kosten)}</span>` : ''}
@@ -578,19 +598,17 @@ async function renderHistory() {
         ${e.omschrijving ? `<p class="full-desc">${esc(e.omschrijving)}</p>` : ''}
         ${e.fotos.length ? `<div class="thumbs">${e.fotos.map((f, i) =>
           `<img loading="lazy" src="photos/${f.thumb}" data-i="${i}" alt="">`).join('')}</div>` : ''}
-      </li>`; }).join('')}</ul>`
-    : `<div class="empty">Nog niet uitgevoerd.<br>Tik op <b>Uitgevoerd</b> om de eerste keer te loggen.</div>`}
-`;
-  $('#histBody')._list = list;
+      </li>`;
 }
 
-$('#histBody').addEventListener('click', ev => {
+function tlClick(ev) {
   const li = ev.target.closest('.tl li'); if (!li) return;
-  const e = $('#histBody')._list.find(x => x.id == li.dataset.id);
+  const e = ev.currentTarget._list.find(x => x.id == li.dataset.id);
   const img = ev.target.closest('img[data-i]');
   if (img) openLightbox(e.fotos.map(f => 'photos/' + f.bestand), +img.dataset.i);
   else openEntry(e);
-});
+}
+$('#histBody').addEventListener('click', tlClick);
 $('#histEdit').addEventListener('click', () => openTask(TASKS.find(x => x.id === histTask)));
 $('#histDone').addEventListener('click', () => {
   const t = TASKS.find(x => x.id === histTask);
@@ -599,8 +617,9 @@ $('#histDone').addEventListener('click', () => {
 $('#histDlg').addEventListener('close', () => { histTask = null; });
 
 async function refreshAfterChange() {
-  await Promise.all([loadEntries(), loadTasks()]);
+  await Promise.all([loadEntries(), loadTasks(), loadCats()]);
   if (histTask != null && $('#histDlg').open) await renderHistory();
+  if (catView != null && $('#catDlg').open) await renderCatView();
 }
 
 let editingTask = null;
@@ -670,7 +689,7 @@ function renderCats() {
       </div>`;
     return `
       <div class="card catrow" data-id="${c.id}">
-        <div class="info"><div class="name">${esc(c.naam)}</div><div class="use">${use}</div></div>
+        <div class="info" data-act="open" title="Logregels bekijken"><div class="name">${esc(c.naam)}</div><div class="use">${use}</div></div>
         <button class="ib" data-act="up" ${i === 0 ? 'disabled' : ''} title="Omhoog" aria-label="Omhoog">↑</button>
         <button class="ib" data-act="down" ${i === CATS.length - 1 ? 'disabled' : ''} title="Omlaag" aria-label="Omlaag">↓</button>
         <button class="ib" data-act="edit" title="Hernoemen" aria-label="Hernoemen">✎</button>
@@ -710,6 +729,7 @@ $('#cats').addEventListener('click', async ev => {
   const b = ev.target.closest('[data-act]'); if (!b) return;
   const row = b.closest('.catrow'), id = +row.dataset.id, i = CATS.findIndex(c => c.id === id), c = CATS[i];
   const act = b.dataset.act;
+  if (act === 'open') { openCatView(c.naam); return; }
   if (act === 'edit') { catEdit = id; renderCats(); return; }
   if (act === 'cancel') { catEdit = null; renderCats(); return; }
   if (act === 'save') { saveCatEdit(row); return; }
@@ -739,6 +759,36 @@ $('#cats').addEventListener('keydown', ev => {
   if (ev.key === 'Enter') { ev.preventDefault(); saveCatEdit(ev.target.closest('.catrow')); }
   if (ev.key === 'Escape') { ev.preventDefault(); catEdit = null; renderCats(); }
 });
+
+// ---------------------------------------------------------------- logregels per categorie
+let catView = null;
+async function openCatView(naam) {
+  catView = naam;
+  await renderCatView();
+  if (!$('#catDlg').open) $('#catDlg').showModal();
+}
+
+async function renderCatView() {
+  const list = await api('api/entries?categorie=' + encodeURIComponent(catView));   // nieuwste eerst
+  const kosten = list.reduce((s, e) => s + (e.kosten || 0), 0);
+  const tijd = list.reduce((s, e) => s + (e.duur_minuten || 0), 0);
+  const taken = TASKS.filter(t => t.categorie === catView);
+  $('#catTitle').textContent = catView;
+  $('#catBody').innerHTML = `
+    <div class="stats">${[
+      [list.length, list.length === 1 ? 'logregel' : 'logregels'],
+      [kosten ? fmtEur(kosten) : '—', 'totale kosten'],
+      [tijd ? fmtDur(tijd) : '—', 'totale tijd'],
+      [taken.length, taken.length === 1 ? 'taak' : 'taken'],
+    ].map(([v, l]) => `<div class="stat"><b>${v}</b><span>${esc(l)}</span></div>`).join('')}</div>
+    ${list.length ? `<ul class="tl">${list.map(e => tlItem(e, e.taak_naam ? `⟳ ${esc(e.taak_naam)}` : '')).join('')}</ul>`
+      : `<div class="empty">Nog geen logregels in deze categorie.</div>`}`;
+  $('#catBody')._list = list;
+}
+
+$('#catBody').addEventListener('click', tlClick);
+$('#catNew').addEventListener('click', () => openEntry(null, {categorie: catView}));
+$('#catDlg').addEventListener('close', () => { catView = null; });
 
 // ---------------------------------------------------------------- lightbox
 function openLightbox(list, i) { lbList = list; lbIdx = i; showLb(); $('#lightbox').showModal(); }
