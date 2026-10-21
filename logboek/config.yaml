@@ -1,5 +1,5 @@
 name: Logboek
-version: "0.5.0"
+version: "0.5.1"
 slug: logboek
 description: Onderhoudslogboek met foto's en onderhoudstaken (bijv. voor een boot)
 url: "https://github.com/Shipborn/ha-logboek"
@@ -13,7 +13,7 @@ boot: auto
 ingress: true
 ingress_port: 8099
 panel_icon: mdi:notebook-edit
-panel_title: Logboek
+panel_title: Maintenance Log
 homeassistant_api: true
 services:
   - mqtt:want
