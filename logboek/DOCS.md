@@ -20,6 +20,12 @@ Onderhoudslogboek met foto's en terugkerende onderhoudstaken, als paneel in de H
 | `photo_max_px` | Foto's worden verkleind tot maximaal dit aantal pixels aan de lange kant. `0` = origineel formaat bewaren. |
 | `mqtt_enabled` | Sensoren in HA aanmaken via MQTT discovery. |
 | `mqtt_host`, `mqtt_port`, `mqtt_username`, `mqtt_password` | Alleen nodig als je broker **niet** de Mosquitto-add-on is. Laat leeg om de broker automatisch te vinden. |
+| `email_enabled` | Dagelijkse e-mail met de nieuwe logregels aan- of uitzetten. |
+| `email_to` | Ontvanger(s), meerdere gescheiden door een komma. |
+| `email_time` | Tijdstip van de dagmail, bijvoorbeeld `21:00` (tijdzone van Home Assistant). |
+| `smtp_host`, `smtp_port`, `smtp_security` | Uitgaande mailserver. `starttls` met poort `587` werkt bij de meeste providers; `ssl` hoort bij poort `465`. |
+| `smtp_username`, `smtp_password` | Inloggegevens van de mailserver. Bij Gmail en Outlook heb je een **app-wachtwoord** nodig, niet je gewone wachtwoord. |
+| `smtp_from` | Afzenderadres. Leeg = de gebruikersnaam. |
 
 ## Gebruik
 
@@ -29,6 +35,7 @@ Onderhoudslogboek met foto's en terugkerende onderhoudstaken, als paneel in de H
 - Een nieuwe taak staat op **Nog niet gelogd** tot je de eerste keer logt. Zet dan de datum van de laatste keer dat het onderhoud gedaan is.
 - **Categorieën**: tik op een categorie om al zijn logregels te zien, met de totale tijd. Daar kun je ook direct een nieuwe logregel in die categorie maken. Verder: toevoegen, hernoemen (bestaande logregels en taken gaan mee), volgorde aanpassen met ↑/↓ en verwijderen.
 - **Meetwaarden uit Home Assistant**: koppel bij een taak (in **Taak bewerken**) of een categorie (tik op de categorie) één of meer entiteiten, bijvoorbeeld `sensor.accuspanning`. Bij elke nieuwe logregel met die taak of categorie wordt de actuele waarde automatisch mee opgeslagen en bij de logregel getoond. In het logregelvenster zie je vooraf welke waarden worden vastgelegd. Bewerken van een bestaande logregel verandert de opgeslagen waarden niet.
+- **Dagmail**: staat `email_enabled` aan, dan krijg je elke dag op `email_time` een e-mail met alle logregels die sinds de vorige mail zijn ingevoerd, met foto's. Is er niets ingevoerd, dan komt er geen mail. Met **Testmail sturen** (boven het logboek) verstuur je direct een mail met de logregels van vandaag om de instellingen te controleren.
 - **CSV exporteren** levert een bestand dat direct in Excel opent.
 
 ## Opslag en back-up
@@ -70,5 +77,6 @@ automation:
 - **Foto kan niet gelezen worden (iPhone)**: de browser zet HEIC-foto's meestal zelf om naar JPEG. Lukt dat niet, zet dan **Instellingen › Camera › Formaten** op **Meest compatibel**.
 - **Foto kan niet gelezen worden (Samsung)**: zet in de Camera-app **Instellingen › Geavanceerde opties › HEIF-foto's** uit.
 - **Camera opent niet in de Home Assistant-app**: geef de app toestemming voor de camera (Android: **Instellingen › Apps › Home Assistant › Machtigingen**), of kies **Uit galerij**.
+- **Geen dagmail**: probeer **Testmail sturen**; een foutmelding van de mailserver verschijnt dan in beeld. Gmail voorbeeld: `smtp_host` `smtp.gmail.com`, poort `587`, `starttls`, je Gmail-adres als gebruikersnaam en een app-wachtwoord (Google-account › Beveiliging › App-wachtwoorden).
 - **Geen sensoren in HA**: kijk in het **Logboek**-tabblad van de add-on. Daar staat of de MQTT-verbinding gelukt is.
 - **Motoruren worden niet getoond**: controleer of `engine_hours_entity` bestaat en een getal als status heeft.

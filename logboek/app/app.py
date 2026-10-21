@@ -6,6 +6,7 @@ Opslag: SQLite in /data, foto's in /share/logboek/photos.
 Koppeling naar HA: motoruren via de Core API, taakstatus via MQTT discovery.
 """
 import csv
+import html
 import io
 import json
 import logging
@@ -17,12 +18,19 @@ import time
 import uuid
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
+from datetime import time as dt_time
+
+import smtplib
+import ssl
+from email.message import EmailMessage
+from email.utils import formataddr, make_msgid
+from zoneinfo import ZoneInfo
 
 import requests
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 from PIL import Image, ImageOps
 
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("logboek")
@@ -48,6 +56,15 @@ DEFAULT_OPTIONS = {
     "mqtt_port": 1883,
     "mqtt_username": "",
     "mqtt_password": "",
+    "email_enabled": False,
+    "email_to": "",
+    "email_time": "21:00",
+    "smtp_host": "",
+    "smtp_port": 587,
+    "smtp_security": "starttls",
+    "smtp_username": "",
+    "smtp_password": "",
+    "smtp_from": "",
 }
 
 
@@ -110,6 +127,10 @@ CREATE TABLE IF NOT EXISTS entry_values (
     naam TEXT,
     waarde TEXT,
     eenheid TEXT
+);
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT
 );
 CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY,
@@ -190,6 +211,16 @@ def init_db():
                     conn.execute("INSERT INTO categories (naam, volgorde) VALUES (?, ?)", (n, len(seen)))
 
 
+def meta_get(conn, key, default=None):
+    row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def meta_set(conn, key, value):
+    conn.execute("INSERT INTO meta (key, value) VALUES (?, ?) "
+                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value))
+
+
 def category_names(conn):
     return [r["naam"] for r in conn.execute("SELECT naam FROM categories ORDER BY volgorde, id")]
 
@@ -217,6 +248,37 @@ def engine_hours():
     except Exception as e:  # noqa: BLE001
         log.debug("Motoruren niet beschikbaar: %s", e)
         return None
+
+
+_TZ = None
+
+
+def local_tz():
+    """Tijdzone van Home Assistant (de container zelf draait in UTC)."""
+    global _TZ
+    if _TZ:
+        return _TZ
+    name = os.environ.get("TZ")
+    if SUPERVISOR_TOKEN:
+        try:
+            r = requests.get(f"{HA_API}/config", headers=ha_headers(), timeout=5)
+            r.raise_for_status()
+            name = r.json().get("time_zone") or name
+        except Exception as e:  # noqa: BLE001
+            log.warning("Tijdzone uit HA niet opgehaald: %s", e)
+            name = name or None
+    try:
+        _TZ = ZoneInfo(name) if name else timezone.utc
+    except Exception:  # noqa: BLE001
+        log.warning("Onbekende tijdzone %s, UTC gebruikt", name)
+        _TZ = timezone.utc
+    return _TZ
+
+
+def parse_stamp(s):
+    """Tijdstempel uit de database; zonder offset (vóór 0.4.0) is het UTC."""
+    d = datetime.fromisoformat(s)
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
 def ha_state(entity_id):
@@ -536,6 +598,7 @@ def api_config():
         motoruren=engine_hours(),
         engine_entity=text(OPT.get("engine_hours_entity")),
         mqtt=bool(MQTT and MQTT.connected),
+        email=email_ready(),
         photo_max_px=int(OPT.get("photo_max_px") or 0) or None,
         version=VERSION,
     )
@@ -801,6 +864,161 @@ def api_export():
     )
 
 
+# --------------------------------------------------------------------------- dagmail
+
+def email_ready():
+    return bool(OPT.get("email_enabled") and text(OPT.get("email_to")) and text(OPT.get("smtp_host")))
+
+
+def email_time():
+    try:
+        h, m = str(OPT.get("email_time") or "21:00").split(":")
+        return int(h), int(m)
+    except ValueError:
+        log.warning("Ongeldige email_time %r, 21:00 gebruikt", OPT.get("email_time"))
+        return 21, 0
+
+
+def fmt_duur(m):
+    if m is None:
+        return ""
+    return f"{m} min" if m < 60 else f"{m // 60} u" + (f" {m % 60} min" if m % 60 else "")
+
+
+def build_report(entries, subject):
+    """E-mail met tekst- en HTML-deel; miniaturen van de foto's inline."""
+    tz = local_tz()
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = formataddr((OPT["title"], text(OPT.get("smtp_from")) or text(OPT.get("smtp_username")) or ""))
+    msg["To"] = ", ".join(a.strip() for a in OPT["email_to"].replace(";", ",").split(",") if a.strip())
+
+    lines, blocks, images = [], [], []
+    for e in entries:
+        stamp = parse_stamp(e["created_at"]).astimezone(tz).strftime("%d-%m-%Y %H:%M") if e["created_at"] else ""
+        meta = [x for x in (e["categorie"], f"Taak: {e['taak_naam']}" if e["taak_naam"] else None,
+                            f"Door: {e['uitgevoerd_door']}" if e["uitgevoerd_door"] else None,
+                            f"Tijd: {fmt_duur(e['duur_minuten'])}" if e["duur_minuten"] is not None else None) if x]
+        datum = date.fromisoformat(e["datum"]).strftime("%d-%m-%Y")
+        lines += [f"{e['titel']}", f"  Datum {datum}, opgeslagen {stamp}"]
+        lines += [f"  {' · '.join(meta)}"] if meta else []
+        lines += [f"  {e['omschrijving']}"] if e["omschrijving"] else []
+        lines += [f"  Meetwaarden: {fmt_values(e['waarden'])}"] if e["waarden"] else []
+        lines += [f"  {len(e['fotos'])} foto('s)"] if e["fotos"] else []
+        lines.append("")
+
+        thumbs = []
+        for p in e["fotos"][:12]:
+            path = os.path.join(PHOTO_DIR, p["thumb"])
+            if os.path.exists(path):
+                cid = make_msgid(domain="logboek")
+                images.append((cid, path))
+                thumbs.append(f'<img src="cid:{cid[1:-1]}" width="140" style="border-radius:6px;margin:0 6px 6px 0">')
+        vals = "".join(
+            f'<span style="background:#eef1f5;border-radius:6px;padding:1px 7px;margin:0 4px 4px 0;'
+            f'display:inline-block;font-size:12px">{html.escape(v["naam"] or "")}: '
+            f'<b>{html.escape(str(v["waarde"]))}{" " + html.escape(v["eenheid"]) if v["eenheid"] else ""}</b></span>'
+            for v in e["waarden"])
+        blocks.append(f"""
+<div style="border:1px solid #e2e5ea;border-radius:10px;padding:12px 14px;margin:0 0 12px">
+  <div style="color:#687180;font-size:13px">{datum} · opgeslagen {html.escape(stamp)}
+    {''.join(' · ' + html.escape(m) for m in meta)}</div>
+  <div style="font-size:16px;font-weight:600;margin:4px 0">{html.escape(e['titel'])}</div>
+  {f'<div style="white-space:pre-line;margin:0 0 6px">{html.escape(e["omschrijving"])}</div>' if e['omschrijving'] else ''}
+  {f'<div style="margin:0 0 6px">{vals}</div>' if vals else ''}
+  {f'<div>{"".join(thumbs)}</div>' if thumbs else ''}
+</div>""")
+
+    msg.set_content("\n".join(lines) or "Geen logregels.")
+    msg.add_alternative(f"""<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;
+color:#1b2230;max-width:640px">
+<h2 style="font-size:18px">{html.escape(subject)}</h2>
+{''.join(blocks) or '<p>Geen logregels.</p>'}
+</body></html>""", subtype="html")
+    html_part = msg.get_payload()[1]
+    for cid, path in images:
+        with open(path, "rb") as f:
+            html_part.add_related(f.read(), "image", "jpeg", cid=cid)
+    return msg
+
+
+def send_mail(msg):
+    host, port = OPT["smtp_host"], int(OPT.get("smtp_port") or 587)
+    sec = (OPT.get("smtp_security") or "starttls").lower()
+    ctx = ssl.create_default_context()
+    if sec == "ssl":
+        server = smtplib.SMTP_SSL(host, port, timeout=30, context=ctx)
+    else:
+        server = smtplib.SMTP(host, port, timeout=30)
+    with server:
+        if sec == "starttls":
+            server.starttls(context=ctx)
+        if text(OPT.get("smtp_username")):
+            server.login(OPT["smtp_username"], OPT.get("smtp_password") or "")
+        server.send_message(msg)
+
+
+def entries_since(conn, since, until):
+    return entries_with_photos(conn, "WHERE e.created_at > ? AND e.created_at <= ?", (since, until))
+
+
+def send_daily_report():
+    """Logregels sinds de vorige dagmail versturen. Zonder nieuwe logregels geen mail."""
+    tz = local_tz()
+    today = datetime.now(tz).date()
+    until = now()
+    with get_db() as conn:
+        start_of_day = datetime.combine(today, dt_time.min, tz).astimezone(timezone.utc).isoformat(timespec="seconds")
+        since = meta_get(conn, "email_tot", start_of_day)
+        entries = entries_since(conn, since, until)
+    entries.sort(key=lambda e: e["created_at"] or "")
+    if entries:
+        n = len(entries)
+        subject = f"{OPT['title']}: {n} {'logregel' if n == 1 else 'logregels'} op {today.strftime('%d-%m-%Y')}"
+        send_mail(build_report(entries, subject))
+        log.info("Dagmail verstuurd met %d logregel(s)", n)
+    with get_db() as conn:
+        meta_set(conn, "email_tot", until)
+        meta_set(conn, "email_dag", today.isoformat())
+    return len(entries)
+
+
+def mail_loop():
+    while True:
+        time.sleep(30)
+        if not email_ready():
+            continue
+        try:
+            local = datetime.now(local_tz())
+            if (local.hour, local.minute) < email_time():
+                continue
+            with get_db() as conn:
+                if meta_get(conn, "email_dag") == local.date().isoformat():
+                    continue
+            send_daily_report()
+        except Exception:  # noqa: BLE001
+            log.exception("Dagmail versturen mislukt; nieuwe poging over 10 minuten")
+            time.sleep(600)
+
+
+@app.post("/api/email/test")
+def api_email_test():
+    """Testmail met de logregels van vandaag; verandert niets aan de dagmail."""
+    if not email_ready():
+        abort(400, "E-mail staat uit of is niet volledig ingesteld (email_enabled, email_to, smtp_host)")
+    tz = local_tz()
+    start = datetime.combine(datetime.now(tz).date(), dt_time.min, tz).astimezone(timezone.utc)
+    with get_db() as conn:
+        entries = entries_since(conn, start.isoformat(timespec="seconds"), now())
+    entries.sort(key=lambda e: e["created_at"] or "")
+    try:
+        send_mail(build_report(entries, f"{OPT['title']}: testmail ({len(entries)} logregel(s) van vandaag)"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("Testmail mislukt: %s", e)
+        abort(400, f"Versturen mislukt: {e}")
+    return jsonify(ok=True, logregels=len(entries))
+
+
 # --------------------------------------------------------------------------- MQTT
 
 def mqtt_config():
@@ -978,6 +1196,7 @@ if __name__ == "__main__":
     backup_db()
     MQTT = start_mqtt()
     threading.Thread(target=periodic_refresh, daemon=True).start()
+    threading.Thread(target=mail_loop, daemon=True).start()
     from waitress import serve
 
     port = int(os.environ.get("PORT", "8099"))

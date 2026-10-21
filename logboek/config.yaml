@@ -1,5 +1,5 @@
 name: Logboek
-version: "0.7.0"
+version: "0.8.0"
 slug: logboek
 description: Onderhoudslogboek met foto's en onderhoudstaken (bijv. voor een boot)
 url: "https://github.com/Shipborn/ha-logboek"
@@ -35,6 +35,15 @@ options:
   warn_hours: 10
   photo_max_px: 2000
   mqtt_enabled: true
+  email_enabled: false
+  email_to: ""
+  email_time: "21:00"
+  smtp_host: ""
+  smtp_port: 587
+  smtp_security: starttls
+  smtp_username: ""
+  smtp_password: ""
+  smtp_from: ""
 schema:
   title: str
   categories:
@@ -48,3 +57,12 @@ schema:
   mqtt_port: port?
   mqtt_username: str?
   mqtt_password: password?
+  email_enabled: bool?
+  email_to: str?
+  email_time: match(^([01]?[0-9]|2[0-3]):[0-5][0-9]$)?
+  smtp_host: str?
+  smtp_port: port?
+  smtp_security: list(starttls|ssl|geen)?
+  smtp_username: str?
+  smtp_password: password?
+  smtp_from: str?
