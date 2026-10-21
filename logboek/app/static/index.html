@@ -176,8 +176,6 @@ p.hint{margin:0}
       <label class="full">Onderhoudstaak <span class="hint">(optioneel — zet de teller van de taak op nul)</span>
         <select name="task_id"><option value="">— geen —</option></select></label>
       <label class="full">Titel<input name="titel" required placeholder="Bijv. impeller koelwaterpomp vervangen"></label>
-      <label>Motoruren<input name="motoruren" inputmode="decimal" placeholder="bijv. 1234,5"></label>
-      <label>Kosten (€)<input name="kosten" inputmode="decimal" placeholder="0,00"></label>
       <label>Uitgevoerd door<input name="uitgevoerd_door" placeholder="Zelf, werf, monteur…"></label>
       <label>Bestede tijd<input name="duur" inputmode="decimal" placeholder="uur:min, bijv. 1:30"></label>
       <label class="full">Omschrijving<textarea name="omschrijving" placeholder="Wat is er gedaan, gebruikte onderdelen, bevindingen…"></textarea></label>
@@ -262,7 +260,6 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtDate = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('nl-NL', {day:'numeric', month:'short', year:'numeric'}) : '';
 const fmtNum = (n, dec = 1) => n == null ? '' : Number(n).toLocaleString('nl-NL', {maximumFractionDigits: dec});
-const fmtEur = n => n == null ? '' : Number(n).toLocaleString('nl-NL', {style:'currency', currency:'EUR'});
 // tijdstempels zonder offset (vóór 0.4.0) zijn UTC
 const fmtStamp = s => s ? new Date(/[zZ]|[+-]\d\d:\d\d$/.test(s) ? s : s + 'Z').toLocaleString('nl-NL',
   {day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'}) : '';
@@ -326,8 +323,7 @@ async function loadTasks() {
 // ---------------------------------------------------------------- logboek
 function renderEntries() {
   const el = $('#entries');
-  const total = ENTRIES.reduce((s, e) => s + (e.kosten || 0), 0);
-  $('#sum').textContent = `${ENTRIES.length} ${ENTRIES.length === 1 ? 'regel' : 'regels'}` + (total ? ` · ${fmtEur(total)}` : '');
+  $('#sum').textContent = `${ENTRIES.length} ${ENTRIES.length === 1 ? 'regel' : 'regels'}`;
   if (!ENTRIES.length) {
     el.innerHTML = `<div class="empty">${$('#q').value || $('#fcat').value ? 'Niets gevonden.' : 'Nog geen logregels. Tik op + om te beginnen.'}</div>`;
     return;
@@ -338,8 +334,6 @@ function renderEntries() {
         <span>${fmtDate(e.datum)}</span>
         ${e.categorie ? `<span class="chip">${esc(e.categorie)}</span>` : ''}
         ${e.taak_naam ? `<span class="chip">⟳ ${esc(e.taak_naam)}</span>` : ''}
-        ${e.motoruren != null ? `<span>${fmtNum(e.motoruren)} u</span>` : ''}
-        ${e.kosten != null ? `<span>${fmtEur(e.kosten)}</span>` : ''}
         ${e.duur_minuten != null ? `<span title="Bestede tijd">⏱ ${fmtDur(e.duur_minuten)}</span>` : ''}
         ${e.created_at ? `<span class="stamp" title="Opgeslagen">opgeslagen ${fmtStamp(e.created_at)}</span>` : ''}
       </div>
@@ -372,7 +366,7 @@ function openEntry(entry = null, preset = {}) {
   const f = $('#entryForm'); f.reset();
   $('#entryTitle').textContent = entry ? 'Logregel bewerken' : 'Nieuwe logregel';
   $('#entryDelete').hidden = !entry;
-  const v = entry || {datum: today(), motoruren: CFG.motoruren, ...preset};
+  const v = entry || {datum: today(), ...preset};
   f.datum.value = v.datum || today();
   f.categorie.value = v.categorie || '';
   f.task_id.value = v.task_id || '';
@@ -381,8 +375,6 @@ function openEntry(entry = null, preset = {}) {
     if (t) { f.task_id.insertAdjacentHTML('beforeend', `<option value="${t.id}">${esc(t.naam)}</option>`); f.task_id.value = t.id; }
   }
   f.titel.value = v.titel || '';
-  f.motoruren.value = nlNum(v.motoruren);
-  f.kosten.value = v.kosten != null ? Number(v.kosten).toFixed(2).replace('.', ',') : '';
   f.uitgevoerd_door.value = v.uitgevoerd_door || '';
   f.duur.value = durInput(v.duur_minuten);
   const st = $('#entryStamp');
@@ -578,12 +570,10 @@ async function renderHistory() {
     gap[asc[i].id] = g;
   }
   const avg = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
-  const kosten = list.reduce((s, e) => s + (e.kosten || 0), 0);
   const tijd = list.reduce((s, e) => s + (e.duur_minuten || 0), 0);
 
   const stats = [
     [`${list.length}×`, 'uitgevoerd'],
-    [kosten ? fmtEur(kosten) : '—', 'totale kosten'],
     [tijd ? fmtDur(tijd) : '—', 'totale tijd'],
     [avg(dGaps) != null ? `${fmtNum(avg(dGaps), 0)} d` : '—', 'gem. tussenpoos' + (t.interval_dagen ? ` (interval ${t.interval_dagen})` : '')],
   ];
@@ -675,8 +665,6 @@ function tlItem(e, top) {
   return `<li data-id="${e.id}">
         ${top ? `<div class="gap">${top}</div>` : ''}
         <div class="meta"><span>${fmtDate(e.datum)}</span>
-          ${e.motoruren != null ? `<span>${fmtNum(e.motoruren)} u</span>` : ''}
-          ${e.kosten != null ? `<span>${fmtEur(e.kosten)}</span>` : ''}
           ${e.uitgevoerd_door ? `<span>${esc(e.uitgevoerd_door)}</span>` : ''}
           ${e.duur_minuten != null ? `<span title="Bestede tijd">⏱ ${fmtDur(e.duur_minuten)}</span>` : ''}
           ${e.created_at ? `<span class="stamp" title="Opgeslagen">opgeslagen ${fmtStamp(e.created_at)}</span>` : ''}</div>
@@ -859,7 +847,6 @@ async function openCatView(naam) {
 
 async function renderCatView() {
   const list = await api('api/entries?categorie=' + encodeURIComponent(catView));   // nieuwste eerst
-  const kosten = list.reduce((s, e) => s + (e.kosten || 0), 0);
   const tijd = list.reduce((s, e) => s + (e.duur_minuten || 0), 0);
   const taken = TASKS.filter(t => t.categorie === catView);
   const cat = CATS.find(c => c.naam === catView);
@@ -870,7 +857,6 @@ async function renderCatView() {
       <div class="entpick" id="catEnts"></div></div>
     <div class="stats">${[
       [list.length, list.length === 1 ? 'logregel' : 'logregels'],
-      [kosten ? fmtEur(kosten) : '—', 'totale kosten'],
       [tijd ? fmtDur(tijd) : '—', 'totale tijd'],
       [taken.length, taken.length === 1 ? 'taak' : 'taken'],
     ].map(([v, l]) => `<div class="stat"><b>${v}</b><span>${esc(l)}</span></div>`).join('')}</div>

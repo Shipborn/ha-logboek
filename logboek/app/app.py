@@ -22,7 +22,7 @@ import requests
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 from PIL import Image, ImageOps
 
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("logboek")
@@ -351,8 +351,9 @@ def entry_from_form(form):
         "categorie": text(form.get("categorie")),
         "titel": titel,
         "omschrijving": text(form.get("omschrijving")),
-        "motoruren": num(form.get("motoruren")),
-        "kosten": num(form.get("kosten")),
+        # niet meer in het formulier: motoruren komen uit HA, kosten vervallen (oude waarden blijven)
+        "motoruren": num(form.get("motoruren")) if "motoruren" in form else None,
+        "kosten": num(form.get("kosten")) if "kosten" in form else None,
         "uitgevoerd_door": text(form.get("uitgevoerd_door")),
         "duur_minuten": minutes(form.get("duur")),
         "task_id": int(task_id) if task_id else None,
@@ -563,6 +564,8 @@ def api_entries():
 @app.post("/api/entries")
 def api_entry_create():
     data = entry_from_form(request.form)
+    if "motoruren" not in request.form:
+        data["motoruren"] = engine_hours()   # voor taakintervallen op motoruren
     images = load_images(request.files.getlist("fotos"))
     with get_db() as conn:
         cur = conn.execute(
@@ -584,6 +587,10 @@ def api_entry_update(eid):
     data = entry_from_form(request.form)
     images = load_images(request.files.getlist("fotos"))
     with get_db() as conn:
+        old = conn.execute("SELECT motoruren, kosten FROM entries WHERE id = ?", (eid,)).fetchone()
+        for k in ("motoruren", "kosten"):
+            if k not in request.form and old:
+                data[k] = old[k]
         cur = conn.execute(
             "UPDATE entries SET datum=?, categorie=?, titel=?, omschrijving=?, motoruren=?, kosten=?, "
             "uitgevoerd_door=?, duur_minuten=?, task_id=?, updated_at=? WHERE id=?",
@@ -777,13 +784,12 @@ def api_export():
         rows = entries_with_photos(conn)
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
-    w.writerow(["Datum", "Categorie", "Titel", "Taak", "Omschrijving", "Motoruren", "Kosten",
+    w.writerow(["Datum", "Categorie", "Titel", "Taak", "Omschrijving", "Motoruren",
                 "Uitgevoerd door", "Bestede tijd (u:mm)", "Meetwaarden", "Opgeslagen", "Foto's"])
     for r in rows:
         w.writerow([
             r["datum"], r["categorie"] or "", r["titel"], r["taak_naam"] or "", r["omschrijving"] or "",
             "" if r["motoruren"] is None else str(r["motoruren"]).replace(".", ","),
-            "" if r["kosten"] is None else f"{r['kosten']:.2f}".replace(".", ","),
             r["uitgevoerd_door"] or "", fmt_minutes(r["duur_minuten"]), fmt_values(r["waarden"]),
             r["created_at"] or "",
             ", ".join(p["bestand"] for p in r["fotos"]),
