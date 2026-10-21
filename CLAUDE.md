@@ -14,6 +14,7 @@ Home Assistant-app (vroeger "add-on") `logboek`: onderhoudslogboek met foto's en
 - Categorieën staan in de tabel `categories`; optie `categories` is alleen de beginlijst. Hernoemen past entries/tasks mee aan, verwijderen zet hun categorie op NULL.
 - Taakstatus: achterstallig / binnenkort (`warn_days`, `warn_hours`) / ok / onbekend / inactief; interval in dagen en/of motoruren, wat het eerst komt.
 - Logregels: `duur_minuten` (bestede tijd, invoer `1:30` / `1,5` / `45 min`, kolom via `ALTER TABLE` in `init_db`). Tijdstempels (`created_at`/`updated_at`) in UTC met offset; oudere zonder offset zijn ook UTC — de browser toont lokale tijd.
+- Foto's: twee `<label for>`-knoppen (camera met `capture="environment"`, galerij met `multiple`), inputs niet `hidden`/`display:none` en geen `.click()` — anders werkt het niet in de Android-webview van de HA-app (getest op Galaxy A54). Foto's worden in de browser verkleind naar JPEG (`shrinkPhoto`, `photo_max_px`) vóór upload.
 - Motoruren via HA Core API (`engine_hours_entity`), MQTT-broker via Supervisor `services/mqtt` of handmatige opties. MQTT discovery onder `homeassistant/<component>/logboek/...`, state onder `logboek/...`.
 
 ## Testen lokaal
