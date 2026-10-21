@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Logboek</title>
+<style>
+:root{
+  --bg:#f4f5f7;--card:#ffffff;--fg:#1b2230;--muted:#687180;--line:#e2e5ea;--chip:#eef1f5;
+  --accent:#0b62b8;--accent-fg:#ffffff;--ok:#1d7f46;--warn:#a96a00;--bad:#c2312f;--shadow:0 1px 2px rgba(0,0,0,.06);
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#111418;--card:#1a1f26;--fg:#e5e8ed;--muted:#97a0ab;--line:#2a313b;--chip:#242b35;
+  --accent:#5aa2ea;--accent-fg:#0b1220;--ok:#4cc27e;--warn:#e7b84a;--bad:#f07a78;--shadow:none;
+}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+header{position:sticky;top:0;z-index:5;background:var(--bg);padding:14px 16px 0;border-bottom:1px solid var(--line)}
+.top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+h1{font-size:20px;margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pill{font-size:13px;padding:3px 10px;border-radius:99px;background:var(--chip);color:var(--muted);white-space:nowrap}
+.tabs{display:flex;gap:4px;margin-top:10px}
+.tab{border:0;background:none;padding:10px 14px;border-bottom:2px solid transparent;color:var(--muted);cursor:pointer;font-weight:600}
+.tab.active{color:var(--fg);border-color:var(--accent)}
+.tab .count{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:9px;background:var(--bad);color:#fff;font-size:12px;line-height:18px;text-align:center}
+main{max-width:860px;margin:0 auto;padding:14px 16px 100px}
+.filters{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.filters input{flex:1 1 180px}
+.filters select{flex:0 1 200px}
+input,select,textarea{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 11px;width:100%;min-width:0}
+textarea{min-height:110px;resize:vertical}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.summary{color:var(--muted);font-size:13px;margin:0 2px 10px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.summary a{color:var(--accent);text-decoration:none}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px;box-shadow:var(--shadow);cursor:pointer}
+.card:hover{border-color:var(--muted)}
+.meta{display:flex;gap:6px 10px;flex-wrap:wrap;align-items:center;color:var(--muted);font-size:13px}
+.chip{background:var(--chip);border-radius:6px;padding:1px 7px;color:var(--fg);font-size:12px}
+.card h3{margin:4px 0 2px;font-size:16px}
+.desc{color:var(--muted);font-size:14px;margin:2px 0 0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-line}
+.thumbs{display:flex;gap:6px;margin-top:8px;overflow-x:auto}
+.thumbs img{width:76px;height:76px;object-fit:cover;border-radius:8px;flex:none;background:var(--chip)}
+.empty{text-align:center;color:var(--muted);padding:40px 10px}
+.status{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:13px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--muted)}
+.s-achterstallig .dot{background:var(--bad)} .s-achterstallig .status{color:var(--bad)}
+.s-binnenkort .dot{background:var(--warn)} .s-binnenkort .status{color:var(--warn)}
+.s-ok .dot{background:var(--ok)} .s-ok .status{color:var(--ok)}
+.s-inactief{opacity:.6}
+.taskrow{display:flex;gap:10px;align-items:flex-start}
+.taskrow .grow{flex:1;min-width:0}
+.due{font-size:13px;color:var(--muted);margin-top:4px}
+.btn{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:8px 14px;cursor:pointer;font-weight:600;white-space:nowrap}
+.btn.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.btn.danger{color:var(--bad)}
+.btn:disabled{opacity:.6;cursor:default}
+.fab{position:fixed;right:18px;bottom:calc(18px + env(safe-area-inset-bottom));width:58px;height:58px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-fg);font-size:30px;line-height:1;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer}
+dialog{border:0;border-radius:16px;padding:0;width:min(640px,calc(100vw - 20px));max-height:calc(100vh - 20px);background:var(--card);color:var(--fg)}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+dialog form{display:flex;flex-direction:column;max-height:calc(100vh - 20px)}
+.dhead{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+.dhead h2{font-size:17px;margin:0;flex:1}
+.x{border:0;background:none;font-size:24px;line-height:1;cursor:pointer;color:var(--muted);padding:2px 6px}
+.dbody{padding:14px 16px;overflow-y:auto;display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
+.dbody .full{grid-column:1/-1}
+label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted);font-weight:600}
+label.check{flex-direction:row;align-items:center;gap:8px}
+label.check input{width:auto}
+.dfoot{padding:12px 16px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
+.dfoot .left{margin-right:auto}
+.photos{display:flex;gap:8px;flex-wrap:wrap}
+.ph{position:relative;width:88px;height:88px}
+.ph img{width:100%;height:100%;object-fit:cover;border-radius:8px;cursor:zoom-in}
+.ph button{position:absolute;top:-6px;right:-6px;width:24px;height:24px;border-radius:50%;border:0;background:var(--bad);color:#fff;font-size:15px;line-height:1;cursor:pointer}
+.ph.new img{outline:2px dashed var(--accent);outline-offset:-2px}
+.addph{width:88px;height:88px;border:2px dashed var(--line);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--muted);font-size:12px;cursor:pointer;text-align:center;gap:2px}
+.addph span{font-size:26px;line-height:1}
+.hint{font-size:12px;color:var(--muted);font-weight:400}
+#lightbox{background:#000;width:100vw;height:100vh;max-width:100vw;max-height:100vh;margin:0;border-radius:0}
+#lightbox img{width:100%;height:100%;object-fit:contain;cursor:zoom-out}
+#lightbox .nav{position:fixed;top:50%;transform:translateY(-50%);border:0;background:rgba(255,255,255,.15);color:#fff;font-size:28px;width:46px;height:46px;border-radius:50%;cursor:pointer}
+#lightbox .prev{left:12px} #lightbox .next{right:12px}
+#lightbox .close{position:fixed;top:12px;right:12px;border:0;background:rgba(255,255,255,.15);color:#fff;font-size:24px;width:42px;height:42px;border-radius:50%;cursor:pointer}
+.catadd{display:flex;gap:8px;margin-bottom:12px}
+.chev{color:var(--muted);font-size:22px;line-height:1;align-self:center}
+#histDlg .dbody{display:block}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:14px}
+.stat{background:var(--chip);border-radius:10px;padding:8px 10px}
+.stat b{display:block;font-size:17px}
+.stat span{font-size:12px;color:var(--muted)}
+.hnote{background:var(--chip);border-radius:10px;padding:8px 10px;font-size:14px;white-space:pre-line;margin:0 0 14px}
+.tl{list-style:none;margin:0;padding:0 0 0 14px;border-left:2px solid var(--line)}
+.tl li{position:relative;padding:0 0 14px 12px;cursor:pointer}
+.tl li::before{content:"";position:absolute;left:-21px;top:5px;width:12px;height:12px;border-radius:50%;background:var(--accent);border:2px solid var(--card)}
+.tl li:hover h4{text-decoration:underline}
+.tl h4{margin:2px 0;font-size:15px}
+.tl .gap{font-size:12px;color:var(--muted);font-weight:600}
+.tl .full-desc{font-size:14px;color:var(--muted);white-space:pre-line;margin:2px 0 0}
+.catrow{display:flex;align-items:center;gap:8px;cursor:default;padding:8px 10px}
+.catrow .info{flex:1;min-width:0}
+.catrow .name{font-weight:600;overflow-wrap:anywhere}
+.catrow .use{color:var(--muted);font-size:12px}
+.catrow input{flex:1}
+.ib{border:1px solid var(--line);background:var(--card);border-radius:8px;width:34px;height:34px;cursor:pointer;font-size:15px;line-height:1;flex:none;color:var(--fg)}
+.ib:disabled{opacity:.35;cursor:default}
+.ib.danger{color:var(--bad)}
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:50;max-width:90vw}
+.toast.show{opacity:1}
+@media (max-width:520px){.dbody{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1 id="title">Logboek</h1>
+    <span class="pill" id="hours" hidden></span>
+  </div>
+  <nav class="tabs">
+    <button class="tab active" data-tab="log">Logboek</button>
+    <button class="tab" data-tab="tasks">Taken<span class="count" id="lateCount" hidden></span></button>
+    <button class="tab" data-tab="cats">Categorieën</button>
+  </nav>
+</header>
+
+<main>
+  <section id="view-log">
+    <div class="filters">
+      <input id="q" type="search" placeholder="Zoeken…">
+      <select id="fcat"><option value="">Alle categorieën</option></select>
+    </div>
+    <div class="summary"><span id="sum"></span><a href="api/export.csv" download>CSV exporteren</a></div>
+    <div id="entries"></div>
+  </section>
+  <section id="view-tasks" hidden>
+    <div id="tasks"></div>
+  </section>
+  <section id="view-cats" hidden>
+    <form class="catadd" id="catAdd">
+      <input name="naam" placeholder="Nieuwe categorie, bijv. Dek & beslag" maxlength="60" required>
+      <button class="btn primary" type="submit">Toevoegen</button>
+    </form>
+    <div id="cats"></div>
+    <p class="hint" style="margin:12px 2px">Bij hernoemen gaan bestaande logregels en taken mee. Bij verwijderen blijven logregels en taken bewaard, maar zonder categorie.</p>
+  </section>
+</main>
+
+<button class="fab" id="fab" title="Nieuw" aria-label="Nieuw">+</button>
+
+<!-- Logregel -->
+<dialog id="entryDlg">
+  <form id="entryForm" method="dialog">
+    <div class="dhead"><h2 id="entryTitle">Nieuwe logregel</h2><button type="button" class="x" data-close>×</button></div>
+    <div class="dbody">
+      <label>Datum<input type="date" name="datum" required></label>
+      <label>Categorie<select name="categorie"></select></label>
+      <label class="full">Onderhoudstaak <span class="hint">(optioneel — zet de teller van de taak op nul)</span>
+        <select name="task_id"><option value="">— geen —</option></select></label>
+      <label class="full">Titel<input name="titel" required placeholder="Bijv. impeller koelwaterpomp vervangen"></label>
+      <label>Motoruren<input name="motoruren" inputmode="decimal" placeholder="bijv. 1234,5"></label>
+      <label>Kosten (€)<input name="kosten" inputmode="decimal" placeholder="0,00"></label>
+      <label class="full">Uitgevoerd door<input name="uitgevoerd_door" placeholder="Zelf, werf, monteur…"></label>
+      <label class="full">Omschrijving<textarea name="omschrijving" placeholder="Wat is er gedaan, gebruikte onderdelen, bevindingen…"></textarea></label>
+      <div class="full">
+        <label>Foto's</label>
+        <div class="photos" id="photoList"></div>
+        <input type="file" id="fileInput" accept="image/*" multiple hidden>
+      </div>
+    </div>
+    <div class="dfoot">
+      <button type="button" class="btn danger left" id="entryDelete" hidden>Verwijderen</button>
+      <button type="button" class="btn" data-close>Annuleren</button>
+      <button type="submit" class="btn primary" id="entrySave">Opslaan</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Taak -->
+<dialog id="taskDlg">
+  <form id="taskForm" method="dialog">
+    <div class="dhead"><h2 id="taskTitle">Nieuwe taak</h2><button type="button" class="x" data-close>×</button></div>
+    <div class="dbody">
+      <label class="full">Naam<input name="naam" required placeholder="Bijv. Motorolie + filter"></label>
+      <label class="full">Categorie<select name="categorie"></select></label>
+      <label>Elke … dagen<input name="interval_dagen" inputmode="numeric" placeholder="bijv. 365"></label>
+      <label>Elke … motoruren<input name="interval_uren" inputmode="decimal" placeholder="bijv. 100"></label>
+      <p class="hint full" style="margin:0">Vul één of beide in. Bij beide geldt wat het eerst komt.</p>
+      <label class="full">Notitie<textarea name="notitie" placeholder="Onderdeelnummers, olietype, inhoud…"></textarea></label>
+      <label class="check full"><input type="checkbox" name="actief" checked> Actief</label>
+    </div>
+    <div class="dfoot">
+      <button type="button" class="btn danger left" id="taskDelete" hidden>Verwijderen</button>
+      <button type="button" class="btn" data-close>Annuleren</button>
+      <button type="submit" class="btn primary">Opslaan</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Geschiedenis per taak -->
+<dialog id="histDlg">
+  <form method="dialog">
+    <div class="dhead"><h2 id="histTitle">Geschiedenis</h2><button type="button" class="x" data-close>×</button></div>
+    <div class="dbody" id="histBody"></div>
+    <div class="dfoot">
+      <button type="button" class="btn left" id="histEdit">Taak bewerken</button>
+      <button type="button" class="btn primary" id="histDone">Uitgevoerd</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="lightbox">
+  <img alt="">
+  <button class="nav prev" aria-label="Vorige">‹</button>
+  <button class="nav next" aria-label="Volgende">›</button>
+  <button class="close" aria-label="Sluiten">×</button>
+</dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtDate = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('nl-NL', {day:'numeric', month:'short', year:'numeric'}) : '';
+const fmtNum = (n, dec = 1) => n == null ? '' : Number(n).toLocaleString('nl-NL', {maximumFractionDigits: dec});
+const fmtEur = n => n == null ? '' : Number(n).toLocaleString('nl-NL', {style:'currency', currency:'EUR'});
+const nlNum = n => n == null ? '' : String(n).replace('.', ',');
+const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+
+let CFG = {categories: []}, TASKS = [], ENTRIES = [], CATS = [], TAB = 'log', catEdit = null;
+let editing = null, pending = [], lbList = [], lbIdx = 0;
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, opts);
+  if (!r.ok) {
+    let msg = r.statusText;
+    try { msg = (await r.json()).error || msg; } catch (_) {}
+    throw new Error(msg || 'Er ging iets mis');
+  }
+  return (r.headers.get('content-type') || '').includes('json') ? r.json() : r.text();
+}
+
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+function fillSelect(sel, items, first) {
+  sel.innerHTML = (first ? `<option value="">${esc(first)}</option>` : '') +
+    items.map(i => `<option value="${esc(i.value ?? i)}">${esc(i.label ?? i)}</option>`).join('');
+}
+
+// ---------------------------------------------------------------- laden
+async function loadConfig() {
+  CFG = await api('api/config');
+  $('#title').textContent = CFG.title; document.title = CFG.title;
+  const h = $('#hours');
+  if (CFG.motoruren != null) { h.hidden = false; h.textContent = `${fmtNum(CFG.motoruren)} motoruren`; }
+  else h.hidden = true;
+  fillSelect($('#fcat'), CFG.categories, 'Alle categorieën');
+  fillSelect($('#entryForm [name=categorie]'), CFG.categories, '—');
+  fillSelect($('#taskForm [name=categorie]'), CFG.categories, '—');
+}
+
+async function loadEntries() {
+  const p = new URLSearchParams();
+  if ($('#q').value.trim()) p.set('q', $('#q').value.trim());
+  if ($('#fcat').value) p.set('categorie', $('#fcat').value);
+  ENTRIES = await api('api/entries?' + p);
+  renderEntries();
+}
+
+async function loadTasks() {
+  TASKS = await api('api/tasks');
+  renderTasks();
+  const late = TASKS.filter(t => t.status === 'achterstallig').length;
+  const c = $('#lateCount'); c.hidden = !late; c.textContent = late;
+  fillSelect($('#entryForm [name=task_id]'),
+    TASKS.filter(t => t.actief).map(t => ({value: t.id, label: t.naam})), '— geen —');
+}
+
+// ---------------------------------------------------------------- logboek
+function renderEntries() {
+  const el = $('#entries');
+  const total = ENTRIES.reduce((s, e) => s + (e.kosten || 0), 0);
+  $('#sum').textContent = `${ENTRIES.length} ${ENTRIES.length === 1 ? 'regel' : 'regels'}` + (total ? ` · ${fmtEur(total)}` : '');
+  if (!ENTRIES.length) {
+    el.innerHTML = `<div class="empty">${$('#q').value || $('#fcat').value ? 'Niets gevonden.' : 'Nog geen logregels. Tik op + om te beginnen.'}</div>`;
+    return;
+  }
+  el.innerHTML = ENTRIES.map(e => `
+    <article class="card" data-id="${e.id}">
+      <div class="meta">
+        <span>${fmtDate(e.datum)}</span>
+        ${e.categorie ? `<span class="chip">${esc(e.categorie)}</span>` : ''}
+        ${e.taak_naam ? `<span class="chip">⟳ ${esc(e.taak_naam)}</span>` : ''}
+        ${e.motoruren != null ? `<span>${fmtNum(e.motoruren)} u</span>` : ''}
+        ${e.kosten != null ? `<span>${fmtEur(e.kosten)}</span>` : ''}
+      </div>
+      <h3>${esc(e.titel)}</h3>
+      ${e.omschrijving ? `<p class="desc">${esc(e.omschrijving)}</p>` : ''}
+      ${e.fotos.length ? `<div class="thumbs">${e.fotos.map((f, i) =>
+        `<img loading="lazy" src="photos/${f.thumb}" data-lb="${e.id}" data-i="${i}" alt="">`).join('')}</div>` : ''}
+    </article>`).join('');
+}
+
+$('#entries').addEventListener('click', ev => {
+  const img = ev.target.closest('img[data-lb]');
+  if (img) {
+    const e = ENTRIES.find(x => x.id == img.dataset.lb);
+    openLightbox(e.fotos.map(f => 'photos/' + f.bestand), +img.dataset.i);
+    return;
+  }
+  const card = ev.target.closest('.card');
+  if (card) openEntry(ENTRIES.find(x => x.id == card.dataset.id));
+});
+
+let qTimer;
+$('#q').addEventListener('input', () => { clearTimeout(qTimer); qTimer = setTimeout(loadEntries, 250); });
+$('#fcat').addEventListener('change', loadEntries);
+
+// ---------------------------------------------------------------- logregel-dialoog
+function openEntry(entry = null, preset = {}) {
+  editing = entry; pending = [];
+  const f = $('#entryForm'); f.reset();
+  $('#entryTitle').textContent = entry ? 'Logregel bewerken' : 'Nieuwe logregel';
+  $('#entryDelete').hidden = !entry;
+  const v = entry || {datum: today(), motoruren: CFG.motoruren, ...preset};
+  f.datum.value = v.datum || today();
+  f.categorie.value = v.categorie || '';
+  f.task_id.value = v.task_id || '';
+  if (v.task_id && f.task_id.value === '') {  // inactieve taak: toch tonen
+    const t = TASKS.find(t => t.id == v.task_id);
+    if (t) { f.task_id.insertAdjacentHTML('beforeend', `<option value="${t.id}">${esc(t.naam)}</option>`); f.task_id.value = t.id; }
+  }
+  f.titel.value = v.titel || '';
+  f.motoruren.value = nlNum(v.motoruren);
+  f.kosten.value = v.kosten != null ? Number(v.kosten).toFixed(2).replace('.', ',') : '';
+  f.uitgevoerd_door.value = v.uitgevoerd_door || '';
+  f.omschrijving.value = v.omschrijving || '';
+  renderPhotos();
+  $('#entryDlg').showModal();
+}
+
+function renderPhotos() {
+  const existing = editing ? editing.fotos : [];
+  $('#photoList').innerHTML =
+    existing.map((p, i) => `<div class="ph"><img src="photos/${p.thumb}" data-ex="${i}" alt=""><button type="button" data-del="${p.id}" aria-label="Foto verwijderen">×</button></div>`).join('') +
+    pending.map((p, i) => `<div class="ph new"><img src="${p.url}" data-new="${i}" alt=""><button type="button" data-rm="${i}" aria-label="Foto weghalen">×</button></div>`).join('') +
+    `<div class="addph" id="addPhoto" role="button" tabindex="0"><span>📷</span>Foto toevoegen</div>`;
+}
+
+$('#photoList').addEventListener('click', async ev => {
+  const t = ev.target;
+  if (t.closest('#addPhoto')) { $('#fileInput').click(); return; }
+  if (t.dataset.rm != null) { URL.revokeObjectURL(pending[t.dataset.rm].url); pending.splice(+t.dataset.rm, 1); renderPhotos(); return; }
+  if (t.dataset.del != null) {
+    if (!confirm('Deze foto definitief verwijderen?')) return;
+    try {
+      await api('api/photos/' + t.dataset.del, {method: 'DELETE'});
+      editing.fotos = editing.fotos.filter(p => p.id != t.dataset.del);
+      renderPhotos(); loadEntries();
+    } catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.dataset.ex != null) openLightbox(editing.fotos.map(f => 'photos/' + f.bestand), +t.dataset.ex);
+  if (t.dataset.new != null) openLightbox(pending.map(p => p.url), +t.dataset.new);
+});
+
+$('#fileInput').addEventListener('change', ev => {
+  for (const file of ev.target.files) pending.push({file, url: URL.createObjectURL(file)});
+  ev.target.value = '';
+  renderPhotos();
+});
+
+$('#entryForm [name=task_id]').addEventListener('change', ev => {
+  const t = TASKS.find(t => t.id == ev.target.value);
+  const f = $('#entryForm');
+  if (t) {
+    if (!f.titel.value.trim()) f.titel.value = t.naam;
+    if (t.categorie && !f.categorie.value) f.categorie.value = t.categorie;
+  }
+});
+
+$('#entryForm').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const f = ev.target, btn = $('#entrySave');
+  const fd = new FormData(f);
+  pending.forEach(p => fd.append('fotos', p.file, p.file.name || 'foto.jpg'));
+  btn.disabled = true; btn.textContent = pending.length ? 'Uploaden…' : 'Opslaan…';
+  try {
+    await api(editing ? 'api/entries/' + editing.id : 'api/entries', {method: editing ? 'PUT' : 'POST', body: fd});
+    pending.forEach(p => URL.revokeObjectURL(p.url)); pending = [];
+    $('#entryDlg').close();
+    toast('Opgeslagen');
+    await refreshAfterChange();
+  } catch (e) { toast(e.message); }
+  finally { btn.disabled = false; btn.textContent = 'Opslaan'; }
+});
+
+$('#entryDelete').addEventListener('click', async () => {
+  if (!editing || !confirm('Deze logregel en alle foto\'s verwijderen?')) return;
+  try {
+    await api('api/entries/' + editing.id, {method: 'DELETE'});
+    $('#entryDlg').close(); toast('Verwijderd');
+    await refreshAfterChange();
+  } catch (e) { toast(e.message); }
+});
+
+// ---------------------------------------------------------------- taken
+const ORDER = {achterstallig: 0, binnenkort: 1, onbekend: 2, ok: 3, inactief: 4};
+const LABEL = {achterstallig: 'Achterstallig', binnenkort: 'Binnenkort', onbekend: 'Nog niet gelogd', ok: 'In orde', inactief: 'Inactief'};
+
+function dueText(t) {
+  const parts = [];
+  if (t.interval_dagen) {
+    if (t.dagen_rest == null) parts.push(`elke ${t.interval_dagen} dagen`);
+    else if (t.dagen_rest < 0) parts.push(`${-t.dagen_rest} dagen te laat (${fmtDate(t.volgende_datum)})`);
+    else if (t.dagen_rest === 0) parts.push(`vandaag`);
+    else parts.push(`over ${t.dagen_rest} dagen (${fmtDate(t.volgende_datum)})`);
+  }
+  if (t.interval_uren) {
+    if (t.volgende_uren == null) parts.push(`elke ${fmtNum(t.interval_uren)} motoruren`);
+    else if (t.uren_rest == null) parts.push(`bij ${fmtNum(t.volgende_uren)} u`);
+    else if (t.uren_rest < 0) parts.push(`${fmtNum(-t.uren_rest)} u te laat (bij ${fmtNum(t.volgende_uren)} u)`);
+    else parts.push(`over ${fmtNum(t.uren_rest)} u (bij ${fmtNum(t.volgende_uren)} u)`);
+  }
+  return parts.join(' · ') || 'geen interval';
+}
+
+function renderTasks() {
+  const el = $('#tasks');
+  if (!TASKS.length) {
+    el.innerHTML = `<div class="empty">Nog geen onderhoudstaken.<br>Voeg terugkerend onderhoud toe, zoals olie verversen of impeller vervangen.</div>`;
+    return;
+  }
+  const list = [...TASKS].sort((a, b) => ORDER[a.status] - ORDER[b.status] || a.naam.localeCompare(b.naam));
+  el.innerHTML = list.map(t => `
+    <article class="card s-${t.status}" data-id="${t.id}">
+      <div class="taskrow">
+        <div class="grow">
+          <div class="meta"><span class="status"><span class="dot"></span>${LABEL[t.status]}</span>
+            ${t.categorie ? `<span class="chip">${esc(t.categorie)}</span>` : ''}</div>
+          <h3>${esc(t.naam)}</h3>
+          <div class="due">Volgende: ${dueText(t)}</div>
+          <div class="due">${t.laatst_datum ? `Laatst: ${fmtDate(t.laatst_datum)}${t.laatst_uren != null ? ` · ${fmtNum(t.laatst_uren)} u` : ''}` :
+            'Log de laatste keer dat dit gedaan is om de teller te starten.'}</div>
+        </div>
+        ${t.actief ? `<button class="btn primary" data-done="${t.id}">Uitgevoerd</button>` : ''}
+        <span class="chev" aria-hidden="true">›</span>
+      </div>
+    </article>`).join('');
+}
+
+$('#tasks').addEventListener('click', ev => {
+  const done = ev.target.closest('[data-done]');
+  if (done) {
+    const t = TASKS.find(x => x.id == done.dataset.done);
+    openEntry(null, {task_id: t.id, titel: t.naam, categorie: t.categorie});
+    return;
+  }
+  const card = ev.target.closest('.card');
+  if (card) openHistory(+card.dataset.id);
+});
+
+// ---------------------------------------------------------------- geschiedenis per taak
+let histTask = null;
+const dayDiff = (a, b) => Math.round((new Date(a + 'T00:00:00') - new Date(b + 'T00:00:00')) / 86400000);
+
+async function openHistory(id) {
+  histTask = id;
+  await renderHistory();
+  if (!$('#histDlg').open) $('#histDlg').showModal();
+}
+
+async function renderHistory() {
+  const t = TASKS.find(x => x.id === histTask);
+  if (!t) { $('#histDlg').close(); return; }
+  const list = await api('api/entries?task_id=' + t.id);   // nieuwste eerst
+  $('#histTitle').textContent = t.naam;
+  $('#histDone').hidden = !t.actief;
+
+  // tussenpozen tussen opeenvolgende uitvoeringen
+  const asc = [...list].reverse(), dGaps = [], hGaps = [];
+  const gap = {};
+  for (let i = 1; i < asc.length; i++) {
+    const d = dayDiff(asc[i].datum, asc[i - 1].datum); dGaps.push(d);
+    const g = {d};
+    if (asc[i].motoruren != null && asc[i - 1].motoruren != null) {
+      g.h = Math.round((asc[i].motoruren - asc[i - 1].motoruren) * 10) / 10; hGaps.push(g.h);
+    }
+    gap[asc[i].id] = g;
+  }
+  const avg = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
+  const kosten = list.reduce((s, e) => s + (e.kosten || 0), 0);
+
+  const stats = [
+    [`${list.length}×`, 'uitgevoerd'],
+    [kosten ? fmtEur(kosten) : '—', 'totale kosten'],
+    [avg(dGaps) != null ? `${fmtNum(avg(dGaps), 0)} d` : '—', 'gem. tussenpoos' + (t.interval_dagen ? ` (interval ${t.interval_dagen})` : '')],
+  ];
+  if (t.interval_uren || hGaps.length)
+    stats.push([avg(hGaps) != null ? `${fmtNum(avg(hGaps))} u` : '—', 'gem. motoruren' + (t.interval_uren ? ` (interval ${fmtNum(t.interval_uren)})` : '')]);
+
+  $('#histBody').innerHTML = `
+    <div class="meta s-${t.status}" style="margin-bottom:10px;opacity:1">
+      <span class="status"><span class="dot"></span>${LABEL[t.status]}</span>
+      ${t.categorie ? `<span class="chip">${esc(t.categorie)}</span>` : ''}
+      <span>Volgende: ${dueText(t)}</span>
+    </div>
+    <div class="stats">${stats.map(([v, l]) => `<div class="stat"><b>${v}</b><span>${esc(l)}</span></div>`).join('')}</div>
+    ${t.notitie ? `<p class="hnote">${esc(t.notitie)}</p>` : ''}
+    ${list.length ? `<ul class="tl">${list.map(e => {
+      const g = gap[e.id];
+      const gapTxt = g ? `+${g.d} dagen${g.h != null ? ` · +${fmtNum(g.h)} u` : ''} sinds vorige` : 'eerste keer gelogd';
+      return `<li data-id="${e.id}">
+        <div class="gap">${gapTxt}</div>
+        <div class="meta"><span>${fmtDate(e.datum)}</span>
+          ${e.motoruren != null ? `<span>${fmtNum(e.motoruren)} u</span>` : ''}
+          ${e.kosten != null ? `<span>${fmtEur(e.kosten)}</span>` : ''}
+          ${e.uitgevoerd_door ? `<span>${esc(e.uitgevoerd_door)}</span>` : ''}</div>
+        <h4>${esc(e.titel)}</h4>
+        ${e.omschrijving ? `<p class="full-desc">${esc(e.omschrijving)}</p>` : ''}
+        ${e.fotos.length ? `<div class="thumbs">${e.fotos.map((f, i) =>
+          `<img loading="lazy" src="photos/${f.thumb}" data-i="${i}" alt="">`).join('')}</div>` : ''}
+      </li>`; }).join('')}</ul>`
+    : `<div class="empty">Nog niet uitgevoerd.<br>Tik op <b>Uitgevoerd</b> om de eerste keer te loggen.</div>`}
+`;
+  $('#histBody')._list = list;
+}
+
+$('#histBody').addEventListener('click', ev => {
+  const li = ev.target.closest('.tl li'); if (!li) return;
+  const e = $('#histBody')._list.find(x => x.id == li.dataset.id);
+  const img = ev.target.closest('img[data-i]');
+  if (img) openLightbox(e.fotos.map(f => 'photos/' + f.bestand), +img.dataset.i);
+  else openEntry(e);
+});
+$('#histEdit').addEventListener('click', () => openTask(TASKS.find(x => x.id === histTask)));
+$('#histDone').addEventListener('click', () => {
+  const t = TASKS.find(x => x.id === histTask);
+  openEntry(null, {task_id: t.id, titel: t.naam, categorie: t.categorie});
+});
+$('#histDlg').addEventListener('close', () => { histTask = null; });
+
+async function refreshAfterChange() {
+  await Promise.all([loadEntries(), loadTasks()]);
+  if (histTask != null && $('#histDlg').open) await renderHistory();
+}
+
+let editingTask = null;
+function openTask(task = null) {
+  editingTask = task;
+  const f = $('#taskForm'); f.reset();
+  $('#taskTitle').textContent = task ? 'Taak bewerken' : 'Nieuwe taak';
+  $('#taskDelete').hidden = !task;
+  f.naam.value = task?.naam || '';
+  f.categorie.value = task?.categorie || '';
+  f.interval_dagen.value = task?.interval_dagen ?? '';
+  f.interval_uren.value = nlNum(task?.interval_uren);
+  f.notitie.value = task?.notitie || '';
+  f.actief.checked = task ? !!task.actief : true;
+  $('#taskDlg').showModal();
+}
+
+$('#taskForm').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const f = ev.target;
+  const body = {naam: f.naam.value, categorie: f.categorie.value, interval_dagen: f.interval_dagen.value,
+    interval_uren: f.interval_uren.value, notitie: f.notitie.value, actief: f.actief.checked};
+  try {
+    await api(editingTask ? 'api/tasks/' + editingTask.id : 'api/tasks', {
+      method: editingTask ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    $('#taskDlg').close(); toast('Opgeslagen');
+    await refreshAfterChange();
+  } catch (e) { toast(e.message); }
+});
+
+$('#taskDelete').addEventListener('click', async () => {
+  if (!editingTask || !confirm('Deze taak verwijderen? De logregels blijven bewaard.')) return;
+  try {
+    await api('api/tasks/' + editingTask.id, {method: 'DELETE'});
+    $('#taskDlg').close(); toast('Verwijderd');
+    await refreshAfterChange();
+  } catch (e) { toast(e.message); }
+});
+
+// ---------------------------------------------------------------- categorieën
+async function loadCats() {
+  CATS = await api('api/categories');
+  renderCats();
+}
+
+async function refreshCategoryLists() {
+  // keuzelijsten in filters en formulieren bijwerken
+  const keep = $('#fcat').value;
+  CFG.categories = CATS.map(c => c.naam);
+  fillSelect($('#fcat'), CFG.categories, 'Alle categorieën');
+  fillSelect($('#entryForm [name=categorie]'), CFG.categories, '—');
+  fillSelect($('#taskForm [name=categorie]'), CFG.categories, '—');
+  $('#fcat').value = CFG.categories.includes(keep) ? keep : '';
+}
+
+function renderCats() {
+  const el = $('#cats');
+  if (!CATS.length) { el.innerHTML = '<div class="empty">Nog geen categorieën.</div>'; return; }
+  el.innerHTML = CATS.map((c, i) => {
+    const use = [c.logregels ? `${c.logregels} ${c.logregels === 1 ? 'logregel' : 'logregels'}` : '',
+                 c.taken ? `${c.taken} ${c.taken === 1 ? 'taak' : 'taken'}` : ''].filter(Boolean).join(' · ') || 'niet gebruikt';
+    if (catEdit === c.id) return `
+      <div class="card catrow" data-id="${c.id}">
+        <input value="${esc(c.naam)}" maxlength="60" data-edit>
+        <button class="ib" data-act="save" title="Opslaan" aria-label="Opslaan">✓</button>
+        <button class="ib" data-act="cancel" title="Annuleren" aria-label="Annuleren">×</button>
+      </div>`;
+    return `
+      <div class="card catrow" data-id="${c.id}">
+        <div class="info"><div class="name">${esc(c.naam)}</div><div class="use">${use}</div></div>
+        <button class="ib" data-act="up" ${i === 0 ? 'disabled' : ''} title="Omhoog" aria-label="Omhoog">↑</button>
+        <button class="ib" data-act="down" ${i === CATS.length - 1 ? 'disabled' : ''} title="Omlaag" aria-label="Omlaag">↓</button>
+        <button class="ib" data-act="edit" title="Hernoemen" aria-label="Hernoemen">✎</button>
+        <button class="ib danger" data-act="del" title="Verwijderen" aria-label="Verwijderen">🗑</button>
+      </div>`;
+  }).join('');
+  const inp = $('#cats [data-edit]');
+  if (inp) { inp.focus(); inp.select(); }
+}
+
+async function catsChanged(reloadAll = false) {
+  await loadCats();
+  await refreshCategoryLists();
+  if (reloadAll) await Promise.all([loadEntries(), loadTasks()]);
+}
+
+$('#catAdd').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const inp = ev.target.naam;
+  try {
+    await api('api/categories', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({naam: inp.value})});
+    inp.value = ''; toast('Categorie toegevoegd');
+    await catsChanged();
+  } catch (e) { toast(e.message); }
+});
+
+async function saveCatEdit(row) {
+  const naam = $('[data-edit]', row).value;
+  try {
+    await api('api/categories/' + row.dataset.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({naam})});
+    catEdit = null; toast('Hernoemd');
+    await catsChanged(true);
+  } catch (e) { toast(e.message); }
+}
+
+$('#cats').addEventListener('click', async ev => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const row = b.closest('.catrow'), id = +row.dataset.id, i = CATS.findIndex(c => c.id === id), c = CATS[i];
+  const act = b.dataset.act;
+  if (act === 'edit') { catEdit = id; renderCats(); return; }
+  if (act === 'cancel') { catEdit = null; renderCats(); return; }
+  if (act === 'save') { saveCatEdit(row); return; }
+  if (act === 'up' || act === 'down') {
+    const j = act === 'up' ? i - 1 : i + 1;
+    [CATS[i], CATS[j]] = [CATS[j], CATS[i]];
+    renderCats();
+    try {
+      await api('api/categories/order', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: CATS.map(c => c.id)})});
+      await refreshCategoryLists();
+    } catch (e) { toast(e.message); loadCats(); }
+    return;
+  }
+  if (act === 'del') {
+    const n = c.logregels + c.taken;
+    if (!confirm(`Categorie "${c.naam}" verwijderen?` + (n ? `\n\n${n} logregel(s) en/of taken blijven bewaard, maar zonder categorie.` : ''))) return;
+    try {
+      await api('api/categories/' + id, {method: 'DELETE'});
+      toast('Verwijderd');
+      await catsChanged(n > 0);
+    } catch (e) { toast(e.message); }
+  }
+});
+
+$('#cats').addEventListener('keydown', ev => {
+  if (!ev.target.matches('[data-edit]')) return;
+  if (ev.key === 'Enter') { ev.preventDefault(); saveCatEdit(ev.target.closest('.catrow')); }
+  if (ev.key === 'Escape') { ev.preventDefault(); catEdit = null; renderCats(); }
+});
+
+// ---------------------------------------------------------------- lightbox
+function openLightbox(list, i) { lbList = list; lbIdx = i; showLb(); $('#lightbox').showModal(); }
+function showLb() {
+  $('#lightbox img').src = lbList[lbIdx];
+  $$('#lightbox .nav').forEach(b => b.hidden = lbList.length < 2);
+}
+$('#lightbox .prev').onclick = () => { lbIdx = (lbIdx - 1 + lbList.length) % lbList.length; showLb(); };
+$('#lightbox .next').onclick = () => { lbIdx = (lbIdx + 1) % lbList.length; showLb(); };
+$('#lightbox .close').onclick = $('#lightbox img').onclick = () => $('#lightbox').close();
+$('#lightbox').addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft') $('#lightbox .prev').click();
+  if (e.key === 'ArrowRight') $('#lightbox .next').click();
+});
+
+// ---------------------------------------------------------------- algemeen
+$$('[data-close]').forEach(b => b.addEventListener('click', () => b.closest('dialog').close()));
+$$('.tab').forEach(b => b.addEventListener('click', () => {
+  TAB = b.dataset.tab;
+  $$('.tab').forEach(x => x.classList.toggle('active', x === b));
+  $('#view-log').hidden = TAB !== 'log';
+  $('#view-tasks').hidden = TAB !== 'tasks';
+  $('#view-cats').hidden = TAB !== 'cats';
+  $('#fab').hidden = TAB === 'cats';
+  if (TAB === 'cats') loadCats();
+}));
+$('#fab').addEventListener('click', () => TAB === 'log' ? openEntry() : openTask());
+
+(async () => {
+  try {
+    await loadConfig();
+    await Promise.all([loadEntries(), loadTasks()]);
+  } catch (e) { toast('Laden mislukt: ' + e.message); }
+})();
+</script>
+</body>
+</html>

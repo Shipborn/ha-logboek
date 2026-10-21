@@ -1,0 +1,19 @@
+# Projectnotities
+
+Home Assistant-app (vroeger "add-on") `logboek`: onderhoudslogboek met foto's en onderhoudstaken. UI en teksten in het Nederlands.
+
+## Structuur
+- `repository.yaml` – maakt deze repo installeerbaar als HA-app-repository.
+- `logboek/config.yaml` – app-manifest. **Verhoog `version` bij elke wijziging** (ook `VERSION` in `logboek/app/app.py`), anders biedt HA geen update aan.
+- `logboek/Dockerfile` – bewust `FROM alpine:3.22` i.p.v. `ARG BUILD_FROM`: de Supervisor van de gebruiker geeft `BUILD_FROM` niet mee, dat brak de build.
+- `logboek/app/app.py` – Flask + waitress op poort 8099 (ingress). SQLite in `/data/logboek.db`, foto's in `/share/logboek/photos` (JPEG + `_t.jpg`-thumbnail, EXIF-rotatie, verkleind tot `photo_max_px`).
+- `logboek/app/static/index.html` – volledige frontend in één bestand, vanilla JS, relatieve URL's (`api/...`) vanwege ingress. Tabbladen: Logboek, Taken (met geschiedenisdialoog per taak), Categorieën.
+- `logboek/DOCS.md` – gebruikersdocumentatie (getoond in HA).
+
+## Gedrag
+- Categorieën staan in de tabel `categories`; optie `categories` is alleen de beginlijst. Hernoemen past entries/tasks mee aan, verwijderen zet hun categorie op NULL.
+- Taakstatus: achterstallig / binnenkort (`warn_days`, `warn_hours`) / ok / onbekend / inactief; interval in dagen en/of motoruren, wat het eerst komt.
+- Motoruren via HA Core API (`engine_hours_entity`), MQTT-broker via Supervisor `services/mqtt` of handmatige opties. MQTT discovery onder `homeassistant/<component>/logboek/...`, state onder `logboek/...`.
+
+## Testen lokaal
+`DATA_DIR=/tmp/lb/data PHOTO_DIR=/tmp/lb/photos OPTIONS_FILE=/tmp/lb/none.json python3 logboek/app/app.py` en open http://localhost:8099.
