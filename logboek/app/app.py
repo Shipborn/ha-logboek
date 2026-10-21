@@ -10,6 +10,7 @@ import io
 import json
 import logging
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -21,7 +22,7 @@ import requests
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 from PIL import Image, ImageOps
 
-VERSION = "0.5.1"
+VERSION = "0.6.0"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("logboek")
@@ -102,6 +103,14 @@ CREATE TABLE IF NOT EXISTS photos (
     thumb TEXT NOT NULL,
     created_at TEXT
 );
+CREATE TABLE IF NOT EXISTS entry_values (
+    id INTEGER PRIMARY KEY,
+    entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+    entity_id TEXT NOT NULL,
+    naam TEXT,
+    waarde TEXT,
+    eenheid TEXT
+);
 CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY,
     naam TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -110,6 +119,7 @@ CREATE TABLE IF NOT EXISTS categories (
 CREATE INDEX IF NOT EXISTS idx_entries_datum ON entries(datum);
 CREATE INDEX IF NOT EXISTS idx_entries_task ON entries(task_id);
 CREATE INDEX IF NOT EXISTS idx_photos_entry ON photos(entry_id);
+CREATE INDEX IF NOT EXISTS idx_values_entry ON entry_values(entry_id);
 """
 
 
@@ -160,9 +170,11 @@ def init_db():
     with get_db() as conn:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
-        cols = {r["name"] for r in conn.execute("PRAGMA table_info(entries)")}
-        if "duur_minuten" not in cols:
-            conn.execute("ALTER TABLE entries ADD COLUMN duur_minuten INTEGER")
+        for table, col, typ in (("entries", "duur_minuten", "INTEGER"),
+                                ("tasks", "entiteiten", "TEXT"),
+                                ("categories", "entiteiten", "TEXT")):
+            if col not in {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
         if conn.execute("SELECT COUNT(*) FROM categories").fetchone()[0] == 0:
             # eerste start: vullen met de categorieën uit de instellingen + alles wat al gebruikt is
             names = list(OPT.get("categories") or [])
@@ -207,7 +219,81 @@ def engine_hours():
         return None
 
 
+def ha_state(entity_id):
+    """Actuele waarde van een entiteit als meetwaarde, of None als HA niet bereikbaar is."""
+    if not SUPERVISOR_TOKEN:
+        return None
+    try:
+        r = requests.get(f"{HA_API}/states/{entity_id}", headers=ha_headers(), timeout=5)
+        if r.status_code == 404:
+            return {"entity_id": entity_id, "naam": entity_id, "waarde": "bestaat niet", "eenheid": None}
+        r.raise_for_status()
+        st = r.json()
+    except Exception as e:  # noqa: BLE001
+        log.warning("Waarde van %s niet opgehaald: %s", entity_id, e)
+        return None
+    attrs = st.get("attributes") or {}
+    return {"entity_id": entity_id, "naam": attrs.get("friendly_name") or entity_id,
+            "waarde": st.get("state"), "eenheid": attrs.get("unit_of_measurement")}
+
+
+def ha_all_states():
+    if not SUPERVISOR_TOKEN:
+        return []
+    try:
+        r = requests.get(f"{HA_API}/states", headers=ha_headers(), timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:  # noqa: BLE001
+        log.warning("Entiteiten uit HA niet opgehaald: %s", e)
+        return []
+
+
 # --------------------------------------------------------------------------- helpers
+
+ENTITY_RE = re.compile(r"^[a-z0-9_]+\.[a-z0-9_]+$")
+
+
+def entity_list(value):
+    """Lijst entiteit-id's uit JSON (lijst) of tekst uit de database."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            value = []
+    out = []
+    for e in value or []:
+        e = str(e).strip().lower()
+        if not ENTITY_RE.match(e):
+            abort(400, f"Ongeldige entiteit: {e}")
+        if e not in out:
+            out.append(e)
+    return out
+
+
+def entities_for(conn, task_id, categorie):
+    """Entiteiten van de taak en de categorie samen, zonder dubbele."""
+    ids = []
+    if task_id:
+        row = conn.execute("SELECT entiteiten FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        ids += entity_list(row["entiteiten"]) if row else []
+    if categorie:
+        row = conn.execute("SELECT entiteiten FROM categories WHERE naam = ?", (categorie,)).fetchone()
+        ids += entity_list(row["entiteiten"]) if row else []
+    return list(dict.fromkeys(ids))
+
+
+def capture_values(conn, entry_id, task_id, categorie):
+    for eid in entities_for(conn, task_id, categorie):
+        v = ha_state(eid)
+        if v:
+            conn.execute("INSERT INTO entry_values (entry_id, entity_id, naam, waarde, eenheid) VALUES (?,?,?,?,?)",
+                         (entry_id, v["entity_id"], v["naam"], v["waarde"], v["eenheid"]))
+
+
+def fmt_values(values):
+    return "; ".join(f"{v['naam']}: {v['waarde']}" + (f" {v['eenheid']}" if v["eenheid"] else "") for v in values)
+
 
 def num(value):
     if value is None:
@@ -286,6 +372,7 @@ def task_from_json(d):
         "interval_uren": uren if uren else None,
         "notitie": text(d.get("notitie")),
         "actief": 1 if d.get("actief", True) else 0,
+        "entiteiten": json.dumps(entity_list(d.get("entiteiten"))),
     }
 
 
@@ -347,11 +434,18 @@ def entries_with_photos(conn, where="", args=()):
         for p in conn.execute(q, ids):
             photos.setdefault(p["entry_id"], []).append(
                 {"id": p["id"], "bestand": p["bestand"], "thumb": p["thumb"]})
-    return [dict(r, fotos=photos.get(r["id"], [])) for r in rows]
+    values = {}
+    if ids:
+        q = f"SELECT * FROM entry_values WHERE entry_id IN ({','.join('?' * len(ids))}) ORDER BY id"
+        for v in conn.execute(q, ids):
+            values.setdefault(v["entry_id"], []).append(
+                {"entity_id": v["entity_id"], "naam": v["naam"], "waarde": v["waarde"], "eenheid": v["eenheid"]})
+    return [dict(r, fotos=photos.get(r["id"], []), waarden=values.get(r["id"], [])) for r in rows]
 
 
 def task_status(conn, t, hours_now, today):
     s = dict(t)
+    s["entiteiten"] = entity_list(t["entiteiten"])
     last = conn.execute(
         "SELECT datum, motoruren FROM entries WHERE task_id = ? ORDER BY datum DESC, id DESC LIMIT 1",
         (t["id"],),
@@ -479,6 +573,7 @@ def api_entry_create():
         )
         eid = cur.lastrowid
         save_images(conn, eid, images)
+        capture_values(conn, eid, data["task_id"], data["categorie"])
         result = entries_with_photos(conn, "WHERE e.id = ?", (eid,))[0]
     changed()
     return jsonify(result), 201
@@ -537,9 +632,10 @@ def api_task_create():
     d = task_from_json(request.get_json(force=True) or {})
     with get_db() as conn:
         cur = conn.execute(
-            "INSERT INTO tasks (naam, categorie, interval_dagen, interval_uren, notitie, actief) "
-            "VALUES (?,?,?,?,?,?)",
-            (d["naam"], d["categorie"], d["interval_dagen"], d["interval_uren"], d["notitie"], d["actief"]),
+            "INSERT INTO tasks (naam, categorie, interval_dagen, interval_uren, notitie, actief, entiteiten) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (d["naam"], d["categorie"], d["interval_dagen"], d["interval_uren"], d["notitie"], d["actief"],
+             d["entiteiten"]),
         )
         tid = cur.lastrowid
     changed()
@@ -551,10 +647,10 @@ def api_task_update(tid):
     d = task_from_json(request.get_json(force=True) or {})
     with get_db() as conn:
         cur = conn.execute(
-            "UPDATE tasks SET naam=?, categorie=?, interval_dagen=?, interval_uren=?, notitie=?, actief=? "
-            "WHERE id=?",
+            "UPDATE tasks SET naam=?, categorie=?, interval_dagen=?, interval_uren=?, notitie=?, actief=?, "
+            "entiteiten=? WHERE id=?",
             (d["naam"], d["categorie"], d["interval_dagen"], d["interval_uren"], d["notitie"],
-             d["actief"], tid),
+             d["actief"], d["entiteiten"], tid),
         )
         if cur.rowcount == 0:
             abort(404, "Taak niet gevonden")
@@ -577,11 +673,40 @@ def api_task_delete(tid):
 def api_categories():
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT c.id, c.naam, c.volgorde, "
+            "SELECT c.id, c.naam, c.volgorde, c.entiteiten, "
             "(SELECT COUNT(*) FROM entries e WHERE e.categorie = c.naam) AS logregels, "
             "(SELECT COUNT(*) FROM tasks t WHERE t.categorie = c.naam) AS taken "
             "FROM categories c ORDER BY c.volgorde, c.id").fetchall()
-    return jsonify([dict(r) for r in rows])
+    return jsonify([dict(r, entiteiten=entity_list(r["entiteiten"])) for r in rows])
+
+
+@app.put("/api/categories/<int:cid>/entiteiten")
+def api_category_entities(cid):
+    ids = entity_list((request.get_json(force=True) or {}).get("entiteiten"))
+    with get_db() as conn:
+        if conn.execute("UPDATE categories SET entiteiten = ? WHERE id = ?", (json.dumps(ids), cid)).rowcount == 0:
+            abort(404, "Categorie niet gevonden")
+    changed()
+    return jsonify(entiteiten=ids)
+
+
+@app.get("/api/ha/entities")
+def api_ha_entities():
+    """Alle entiteiten uit HA, voor de keuzelijst."""
+    out = [{"entity_id": st["entity_id"],
+            "naam": (st.get("attributes") or {}).get("friendly_name") or st["entity_id"],
+            "eenheid": (st.get("attributes") or {}).get("unit_of_measurement")}
+           for st in ha_all_states() if st.get("entity_id")]
+    return jsonify(sorted(out, key=lambda e: e["entity_id"]))
+
+
+@app.get("/api/ha/preview")
+def api_ha_preview():
+    """Waarden die bij een nieuwe logregel met deze taak/categorie worden opgeslagen."""
+    task = text(request.args.get("task_id"))
+    with get_db() as conn:
+        ids = entities_for(conn, int(task) if task else None, text(request.args.get("categorie")))
+    return jsonify([v for v in (ha_state(e) for e in ids) if v])
 
 
 def category_name_from_json():
@@ -653,13 +778,14 @@ def api_export():
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
     w.writerow(["Datum", "Categorie", "Titel", "Taak", "Omschrijving", "Motoruren", "Kosten",
-                "Uitgevoerd door", "Bestede tijd (u:mm)", "Opgeslagen", "Foto's"])
+                "Uitgevoerd door", "Bestede tijd (u:mm)", "Meetwaarden", "Opgeslagen", "Foto's"])
     for r in rows:
         w.writerow([
             r["datum"], r["categorie"] or "", r["titel"], r["taak_naam"] or "", r["omschrijving"] or "",
             "" if r["motoruren"] is None else str(r["motoruren"]).replace(".", ","),
             "" if r["kosten"] is None else f"{r['kosten']:.2f}".replace(".", ","),
-            r["uitgevoerd_door"] or "", fmt_minutes(r["duur_minuten"]), r["created_at"] or "",
+            r["uitgevoerd_door"] or "", fmt_minutes(r["duur_minuten"]), fmt_values(r["waarden"]),
+            r["created_at"] or "",
             ", ".join(p["bestand"] for p in r["fotos"]),
         ])
     return Response(

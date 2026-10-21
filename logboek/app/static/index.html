@@ -78,6 +78,19 @@ label.check input{width:auto}
 .addph{width:88px;height:88px;border:2px dashed var(--line);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--muted);font-size:12px;cursor:pointer;text-align:center;gap:2px}
 .addph span{font-size:26px;line-height:1}
 .addph.busy{opacity:.5;pointer-events:none}
+.vals{display:flex;flex-wrap:wrap;gap:4px 6px;margin-top:4px}
+.val{background:var(--chip);border-radius:6px;padding:1px 7px;font-size:12px;color:var(--muted)}
+.val b{color:var(--fg);font-weight:600}
+.entpick{display:flex;flex-direction:column;gap:6px}
+.entpick .chips{display:flex;flex-wrap:wrap;gap:6px}
+.entpick .chips:empty::before{content:"Nog geen meetwaarden.";font-size:12px;color:var(--muted)}
+.entchip{display:inline-flex;align-items:center;gap:4px;background:var(--chip);border-radius:14px;padding:3px 4px 3px 10px;font-size:13px}
+.entchip small{color:var(--muted)}
+.entchip button{border:0;background:none;cursor:pointer;font-size:15px;line-height:1;color:var(--muted);padding:0 4px}
+.entpick .add{display:flex;gap:6px}
+.entpick .add input{flex:1;min-width:0}
+.catents{margin-bottom:14px}
+.catents h3{font-size:14px;margin:0 0 6px}
 .vh{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;pointer-events:none}
 .hint{font-size:12px;color:var(--muted);font-weight:400}
 .meta .stamp{margin-left:auto;font-size:12px}
@@ -168,6 +181,7 @@ p.hint{margin:0}
       <label>Uitgevoerd door<input name="uitgevoerd_door" placeholder="Zelf, werf, monteur…"></label>
       <label>Bestede tijd<input name="duur" inputmode="decimal" placeholder="uur:min, bijv. 1:30"></label>
       <label class="full">Omschrijving<textarea name="omschrijving" placeholder="Wat is er gedaan, gebruikte onderdelen, bevindingen…"></textarea></label>
+      <div class="full" id="entryVals" hidden></div>
       <p class="full hint" id="entryStamp" hidden></p>
       <div class="full">
         <label>Foto's</label>
@@ -196,6 +210,8 @@ p.hint{margin:0}
       <label>Elke … motoruren<input name="interval_uren" inputmode="decimal" placeholder="bijv. 100"></label>
       <p class="hint full" style="margin:0">Vul één of beide in. Bij beide geldt wat het eerst komt.</p>
       <label class="full">Notitie<textarea name="notitie" placeholder="Onderdeelnummers, olietype, inhoud…"></textarea></label>
+      <div class="full"><label>Meetwaarden uit Home Assistant <span class="hint">(bij elke nieuwe logregel van deze taak automatisch opgeslagen)</span></label>
+        <div class="entpick" id="taskEnts"></div></div>
       <label class="check full"><input type="checkbox" name="actief" checked> Actief</label>
     </div>
     <div class="dfoot">
@@ -205,6 +221,8 @@ p.hint{margin:0}
     </div>
   </form>
 </dialog>
+
+<datalist id="haEntities"></datalist>
 
 <!-- Logregels per categorie -->
 <dialog id="catDlg">
@@ -327,6 +345,7 @@ function renderEntries() {
       </div>
       <h3>${esc(e.titel)}</h3>
       ${e.omschrijving ? `<p class="desc">${esc(e.omschrijving)}</p>` : ''}
+      ${valsHtml(e.waarden)}
       ${e.fotos.length ? `<div class="thumbs">${e.fotos.map((f, i) =>
         `<img loading="lazy" src="photos/${f.thumb}" data-lb="${e.id}" data-i="${i}" alt="">`).join('')}</div>` : ''}
     </article>`).join('');
@@ -372,6 +391,8 @@ function openEntry(entry = null, preset = {}) {
     (entry.updated_at && entry.updated_at !== entry.created_at ? ` · laatst gewijzigd ${fmtStamp(entry.updated_at)}` : '');
   f.omschrijving.value = v.omschrijving || '';
   renderPhotos();
+  $('#entryVals').hidden = true;
+  entryValuesPreview();
   $('#entryDlg').showModal();
 }
 
@@ -443,7 +464,9 @@ $('#entryForm [name=task_id]').addEventListener('change', ev => {
     if (!f.titel.value.trim()) f.titel.value = t.naam;
     if (t.categorie && !f.categorie.value) f.categorie.value = t.categorie;
   }
+  entryValuesPreview();
 });
+$('#entryForm [name=categorie]').addEventListener('change', entryValuesPreview);
 
 $('#entryForm').addEventListener('submit', async ev => {
   ev.preventDefault();
@@ -584,6 +607,69 @@ async function renderHistory() {
   $('#histBody')._list = list;
 }
 
+// ---------------------------------------------------------------- meetwaarden uit HA
+const fmtVal = v => {
+  const n = Number(v.waarde);
+  const w = v.waarde != null && v.waarde !== '' && !isNaN(n) ? fmtNum(n, 2) : esc(v.waarde ?? '—');
+  return `<span class="val" title="${esc(v.entity_id)}">${esc(v.naam)}: <b>${w}${v.eenheid ? ' ' + esc(v.eenheid) : ''}</b></span>`;
+};
+const valsHtml = list => list?.length ? `<div class="vals">${list.map(fmtVal).join('')}</div>` : '';
+
+let HA_ENTS = null;
+async function loadHaEntities() {
+  if (HA_ENTS) return HA_ENTS;
+  try { HA_ENTS = await api('api/ha/entities'); } catch (_) { HA_ENTS = []; }
+  $('#haEntities').innerHTML = HA_ENTS.map(e =>
+    `<option value="${esc(e.entity_id)}">${esc(e.naam)}${e.eenheid ? ' (' + esc(e.eenheid) + ')' : ''}</option>`).join('');
+  return HA_ENTS;
+}
+const entName = id => HA_ENTS?.find(e => e.entity_id === id)?.naam;
+
+// keuzelijst met entiteiten; onChange krijgt de nieuwe lijst
+function entPicker(el, list, onChange) {
+  el._list = [...list];
+  const draw = () => {
+    el.innerHTML = `<div class="chips">${el._list.map((id, i) =>
+      `<span class="entchip">${esc(entName(id) || id)}${entName(id) ? ` <small>${esc(id)}</small>` : ''}
+        <button type="button" data-rm="${i}" aria-label="Weghalen">×</button></span>`).join('')}</div>
+      <div class="add"><input list="haEntities" placeholder="Zoek entiteit, bijv. sensor.accuspanning" autocomplete="off">
+        <button type="button" class="btn">Toevoegen</button></div>`;
+  };
+  const add = () => {
+    const inp = $('input', el), id = inp.value.trim().toLowerCase();
+    if (!id) return;
+    if (!/^[a-z0-9_]+\.[a-z0-9_]+$/.test(id)) { toast('Ongeldige entiteit: ' + id); return; }
+    if (!el._list.includes(id)) { el._list.push(id); onChange?.(el._list); }
+    draw(); $('input', el).focus();
+  };
+  el.onclick = ev => {
+    const rm = ev.target.closest('[data-rm]');
+    if (rm) { el._list.splice(+rm.dataset.rm, 1); onChange?.(el._list); draw(); }
+    else if (ev.target.closest('.add button')) add();
+  };
+  el.onkeydown = ev => { if (ev.key === 'Enter' && ev.target.matches('input')) { ev.preventDefault(); add(); } };
+  draw();
+  loadHaEntities().then(draw);
+}
+
+// voorbeeld in de logregel-dialoog: wat wordt er bij opslaan vastgelegd
+let previewSeq = 0;
+async function entryValuesPreview() {
+  const box = $('#entryVals'), f = $('#entryForm');
+  if (editing) {
+    box.hidden = !editing.waarden?.length;
+    box.innerHTML = `<label>Meetwaarden bij opslaan</label>${valsHtml(editing.waarden)}`;
+    return;
+  }
+  const seq = ++previewSeq;
+  const p = new URLSearchParams({task_id: f.task_id.value, categorie: f.categorie.value});
+  let list = [];
+  try { list = await api('api/ha/preview?' + p); } catch (_) {}
+  if (seq !== previewSeq) return;
+  box.hidden = !list.length;
+  box.innerHTML = `<label>Wordt automatisch opgeslagen <span class="hint">(actuele waarden)</span></label>${valsHtml(list)}`;
+}
+
 // één logregel in een tijdlijn (taakgeschiedenis en categorie)
 function tlItem(e, top) {
   return `<li data-id="${e.id}">
@@ -596,6 +682,7 @@ function tlItem(e, top) {
           ${e.created_at ? `<span class="stamp" title="Opgeslagen">opgeslagen ${fmtStamp(e.created_at)}</span>` : ''}</div>
         <h4>${esc(e.titel)}</h4>
         ${e.omschrijving ? `<p class="full-desc">${esc(e.omschrijving)}</p>` : ''}
+        ${valsHtml(e.waarden)}
         ${e.fotos.length ? `<div class="thumbs">${e.fotos.map((f, i) =>
           `<img loading="lazy" src="photos/${f.thumb}" data-i="${i}" alt="">`).join('')}</div>` : ''}
       </li>`;
@@ -634,6 +721,7 @@ function openTask(task = null) {
   f.interval_uren.value = nlNum(task?.interval_uren);
   f.notitie.value = task?.notitie || '';
   f.actief.checked = task ? !!task.actief : true;
+  entPicker($('#taskEnts'), task?.entiteiten || []);
   $('#taskDlg').showModal();
 }
 
@@ -641,7 +729,8 @@ $('#taskForm').addEventListener('submit', async ev => {
   ev.preventDefault();
   const f = ev.target;
   const body = {naam: f.naam.value, categorie: f.categorie.value, interval_dagen: f.interval_dagen.value,
-    interval_uren: f.interval_uren.value, notitie: f.notitie.value, actief: f.actief.checked};
+    interval_uren: f.interval_uren.value, notitie: f.notitie.value, actief: f.actief.checked,
+    entiteiten: $('#taskEnts')._list};
   try {
     await api(editingTask ? 'api/tasks/' + editingTask.id : 'api/tasks', {
       method: editingTask ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
@@ -773,8 +862,12 @@ async function renderCatView() {
   const kosten = list.reduce((s, e) => s + (e.kosten || 0), 0);
   const tijd = list.reduce((s, e) => s + (e.duur_minuten || 0), 0);
   const taken = TASKS.filter(t => t.categorie === catView);
+  const cat = CATS.find(c => c.naam === catView);
   $('#catTitle').textContent = catView;
   $('#catBody').innerHTML = `
+    <div class="catents"><h3>Meetwaarden uit Home Assistant
+      <span class="hint">(bij elke nieuwe logregel in deze categorie automatisch opgeslagen)</span></h3>
+      <div class="entpick" id="catEnts"></div></div>
     <div class="stats">${[
       [list.length, list.length === 1 ? 'logregel' : 'logregels'],
       [kosten ? fmtEur(kosten) : '—', 'totale kosten'],
@@ -784,6 +877,13 @@ async function renderCatView() {
     ${list.length ? `<ul class="tl">${list.map(e => tlItem(e, e.taak_naam ? `⟳ ${esc(e.taak_naam)}` : '')).join('')}</ul>`
       : `<div class="empty">Nog geen logregels in deze categorie.</div>`}`;
   $('#catBody')._list = list;
+  if (cat) entPicker($('#catEnts'), cat.entiteiten || [], async ids => {
+    try {
+      const r = await api(`api/categories/${cat.id}/entiteiten`, {method: 'PUT',
+        headers: {'Content-Type': 'application/json'}, body: JSON.stringify({entiteiten: ids})});
+      cat.entiteiten = r.entiteiten; toast('Meetwaarden opgeslagen');
+    } catch (e) { toast(e.message); }
+  });
 }
 
 $('#catBody').addEventListener('click', tlClick);

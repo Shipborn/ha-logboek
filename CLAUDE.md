@@ -15,6 +15,7 @@ Home Assistant-app (vroeger "add-on") `logboek`: onderhoudslogboek met foto's en
 - Taakstatus: achterstallig / binnenkort (`warn_days`, `warn_hours`) / ok / onbekend / inactief; interval in dagen en/of motoruren, wat het eerst komt.
 - Logregels: `duur_minuten` (bestede tijd, invoer `1:30` / `1,5` / `45 min`, kolom via `ALTER TABLE` in `init_db`). Tijdstempels (`created_at`/`updated_at`) in UTC met offset; oudere zonder offset zijn ook UTC — de browser toont lokale tijd.
 - Foto's: twee `<label for>`-knoppen (camera met `capture="environment"`, galerij met `multiple`), inputs niet `hidden`/`display:none` en geen `.click()` — anders werkt het niet in de Android-webview van de HA-app (getest op Galaxy A54). Foto's worden in de browser verkleind naar JPEG (`shrinkPhoto`, `photo_max_px`) vóór upload.
+- Meetwaarden: `tasks.entiteiten` / `categories.entiteiten` (JSON-lijst entity_id's). Bij **aanmaken** van een logregel worden de states van taak + categorie opgehaald (`capture_values`) en in `entry_values` gezet; bewerken laat ze ongemoeid. `api/ha/entities` (keuzelijst), `api/ha/preview` (voorbeeld in dialoog). Lokaal testen met nep-HA: `HA_API=http://127.0.0.1:8123/api SUPERVISOR_TOKEN=test`.
 - Motoruren via HA Core API (`engine_hours_entity`), MQTT-broker via Supervisor `services/mqtt` of handmatige opties. MQTT discovery onder `homeassistant/<component>/logboek/...`, state onder `logboek/...`.
 
 ## Testen lokaal
