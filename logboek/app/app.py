@@ -32,7 +32,7 @@ from fpdf.enums import XPos, YPos
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 from PIL import Image, ImageOps
 
-VERSION = "0.12.0"
+VERSION = "0.12.1"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("logboek")
@@ -1265,16 +1265,23 @@ def build_report(entries, subject):
   {f'<div>{"".join(thumbs)}</div>' if thumbs else ''}
 </div>""")
 
+    logo = ""
+    if os.path.exists(LOGO_PATH):
+        cid = make_msgid(domain="logboek")
+        images.append((cid, LOGO_PATH))
+        logo = f'<img src="cid:{cid[1:-1]}" alt="" style="max-height:60px;max-width:240px;display:block;margin:0 0 8px">'
+
     msg.set_content("\n".join(lines) or "Geen logregels.")
     msg.add_alternative(f"""<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;
 color:#1b2230;max-width:640px">
+{logo}
 <h2 style="font-size:18px">{html.escape(subject)}</h2>
 {''.join(blocks) or '<p>Geen logregels.</p>'}
 </body></html>""", subtype="html")
     html_part = msg.get_payload()[1]
     for cid, path in images:
         with open(path, "rb") as f:
-            html_part.add_related(f.read(), "image", "jpeg", cid=cid)
+            html_part.add_related(f.read(), "image", "png" if path.endswith(".png") else "jpeg", cid=cid)
     return msg
 
 
