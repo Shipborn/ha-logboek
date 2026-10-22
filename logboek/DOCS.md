@@ -37,12 +37,14 @@ Onderhoudslogboek met foto's en terugkerende onderhoudstaken, als paneel in de H
 - **Meetwaarden uit Home Assistant**: koppel bij een taak (in **Taak bewerken**) of een categorie (tik op de categorie) één of meer entiteiten, bijvoorbeeld `sensor.accuspanning`. Bij elke nieuwe logregel met die taak of categorie wordt de actuele waarde automatisch mee opgeslagen en bij de logregel getoond. In het logregelvenster zie je vooraf welke waarden worden vastgelegd. Bewerken van een bestaande logregel verandert de opgeslagen waarden niet.
 - **Dagmail**: staat `email_enabled` aan, dan krijg je elke dag op `email_time` een e-mail met alle logregels die sinds de vorige mail zijn ingevoerd, met foto's. Is er niets ingevoerd, dan komt er geen mail. Met **Testmail sturen** (boven het logboek) verstuur je direct een mail met de logregels van vandaag om de instellingen te controleren.
 - **PDF**: met de knop **PDF** maak je een PDF van één logregel (in het logregelvenster), van een taak met al zijn uitvoeringen (in de geschiedenis) of van een categorie met al zijn logregels (in het categorievenster). Met foto's, omschrijvingen, meetwaarden en bestede tijd.
+- **Instellingen › Logo**: kies een afbeelding (bij voorkeur PNG met transparante achtergrond). Het logo staat dan links naast de titel bovenaan het logboek en bovenaan elke PDF. Met **Verwijderen** haal je het weer weg.
 - **CSV exporteren** levert een bestand dat direct in Excel opent.
 
 ## Opslag en back-up
 
 - Database: `/data/logboek.db` (in de back-up van de add-on).
 - Foto's: `/share/logboek/photos` (in een volledige back-up, en via Samba bereikbaar).
+- Logo: `/share/logboek/logo.png`.
 - Kopie van de database: `/share/logboek/backup/logboek.db`, bijgewerkt na elke wijziging. Start de app zonder eigen database (bijvoorbeeld na een herinstallatie), dan neemt hij deze kopie automatisch over.
 
 ## Sensoren in Home Assistant

@@ -32,7 +32,7 @@ from fpdf.enums import XPos, YPos
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 from PIL import Image, ImageOps
 
-VERSION = "0.11.0"
+VERSION = "0.12.0"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("logboek")
@@ -86,6 +86,7 @@ os.makedirs(PHOTO_DIR, exist_ok=True)
 DB_PATH = os.path.join(DATA_DIR, "logboek.db")
 BACKUP_DIR = os.environ.get("BACKUP_DIR", os.path.join(os.path.dirname(PHOTO_DIR), "backup"))
 BACKUP_PATH = os.path.join(BACKUP_DIR, "logboek.db")
+LOGO_PATH = os.path.join(os.path.dirname(PHOTO_DIR), "logo.png")
 BACKUP_LOCK = threading.Lock()
 MQTT = None  # wordt gezet in main()
 
@@ -604,6 +605,42 @@ def index():
     return resp
 
 
+def logo_version():
+    return int(os.path.getmtime(LOGO_PATH)) if os.path.exists(LOGO_PATH) else None
+
+
+@app.get("/logo.png")
+def logo():
+    if not os.path.exists(LOGO_PATH):
+        abort(404, "Geen logo")
+    return send_from_directory(os.path.dirname(LOGO_PATH), os.path.basename(LOGO_PATH), max_age=31536000)
+
+
+@app.post("/api/logo")
+def api_logo_upload():
+    fs = request.files.get("logo")
+    if not fs or not fs.filename:
+        abort(400, "Geen bestand ontvangen")
+    try:
+        img = ImageOps.exif_transpose(Image.open(fs.stream))
+    except Exception:  # noqa: BLE001
+        abort(400, "Kan dit bestand niet lezen; gebruik PNG of JPEG")
+    img = img.convert("RGBA" if img.mode in ("RGBA", "LA", "P") else "RGB")   # transparantie behouden
+    img.thumbnail((1000, 400))
+    img.save(LOGO_PATH + ".tmp", "PNG", optimize=True)
+    os.replace(LOGO_PATH + ".tmp", LOGO_PATH)
+    return jsonify(logo=logo_version())
+
+
+@app.delete("/api/logo")
+def api_logo_delete():
+    try:
+        os.remove(LOGO_PATH)
+    except FileNotFoundError:
+        pass
+    return jsonify(logo=None)
+
+
 @app.get("/photos/<path:name>")
 def photo(name):
     return send_from_directory(PHOTO_DIR, name, max_age=31536000)
@@ -620,6 +657,7 @@ def api_config():
         engine_entity=text(OPT.get("engine_hours_entity")),
         mqtt=bool(MQTT and MQTT.connected),
         email=email_ready(),
+        logo=logo_version(),
         photo_max_px=int(OPT.get("photo_max_px") or 0) or None,
         version=VERSION,
     )
@@ -986,6 +1024,13 @@ class LogPdf(FPDF):
         self.multi_cell(0, h or size * 0.5, txt, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
     def heading(self, title, sub=None):
+        if os.path.exists(LOGO_PATH):   # logo linksboven, max 70 × 18 mm
+            with Image.open(LOGO_PATH) as im:
+                ratio = im.width / im.height
+            h = min(18, 70 / ratio)
+            y = self.get_y()
+            self.image(LOGO_PATH, x=self.l_margin, y=y, h=h, w=h * ratio)
+            self.set_y(y + h + 4)
         self.line_text(OPT["title"], 9, color=MUTED)
         self.line_text(title, 18, bold=True, h=9)
         if sub:

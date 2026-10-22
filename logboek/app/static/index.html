@@ -19,6 +19,12 @@ html,body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui
 button,input,select,textarea{font:inherit;color:inherit}
 header{position:sticky;top:0;z-index:5;background:var(--bg);padding:14px 16px 0;border-bottom:1px solid var(--line)}
 .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+#logo{height:36px;max-width:140px;object-fit:contain}
+.logoset{cursor:default}
+.logoset h3{margin:0 0 4px;font-size:16px}
+.logoprev{margin:12px 0;min-height:60px;display:flex;align-items:center;justify-content:center;background:repeating-conic-gradient(var(--chip) 0 25%, transparent 0 50%) 0 0/16px 16px;border-radius:8px;padding:10px}
+.logoprev img{max-width:100%;max-height:120px}
+.logobtns{display:flex;gap:8px}
 h1{font-size:20px;margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pill{font-size:13px;padding:3px 10px;border-radius:99px;background:var(--chip);color:var(--muted);white-space:nowrap}
 .tabs{display:flex;gap:4px;margin-top:10px}
@@ -158,6 +164,7 @@ p.hint{margin:0}
 <body>
 <header>
   <div class="top">
+    <img id="logo" alt="" hidden>
     <h1 id="title">Logboek</h1>
     <span class="pill" id="hours" hidden></span>
   </div>
@@ -165,6 +172,7 @@ p.hint{margin:0}
     <button class="tab active" data-tab="log">Logboek</button>
     <button class="tab" data-tab="tasks">Taken<span class="count" id="lateCount" hidden></span></button>
     <button class="tab" data-tab="cats">Categorieën</button>
+    <button class="tab" data-tab="settings">Instellingen</button>
   </nav>
 </header>
 
@@ -187,6 +195,18 @@ p.hint{margin:0}
     </form>
     <div id="cats"></div>
     <p class="hint" style="margin:12px 2px">Bij hernoemen gaan bestaande logregels en taken mee. Bij verwijderen blijven logregels en taken bewaard, maar zonder categorie.</p>
+  </section>
+  <section id="view-settings" hidden>
+    <div class="card logoset">
+      <h3>Logo</h3>
+      <p class="hint">Staat bovenaan het logboek en bovenaan elke PDF. PNG met transparante achtergrond werkt het mooist.</p>
+      <div class="logoprev" id="logoPrev"><span class="hint">Nog geen logo</span></div>
+      <div class="logobtns">
+        <label class="btn primary" for="logoInput">Logo kiezen</label>
+        <input type="file" id="logoInput" class="vh" accept="image/*" tabindex="-1">
+        <button type="button" class="btn danger" id="logoDel" hidden>Verwijderen</button>
+      </div>
+    </div>
   </section>
 </main>
 
@@ -356,6 +376,7 @@ function fillSelect(sel, items, first) {
 async function loadConfig() {
   CFG = await api('api/config');
   $('#title').textContent = CFG.title; document.title = CFG.title;
+  showLogo();
   const h = $('#hours');
   if (CFG.motoruren != null) { h.hidden = false; h.textContent = `${fmtNum(CFG.motoruren)} motoruren`; }
   else h.hidden = true;
@@ -1150,6 +1171,26 @@ $('#lightbox').addEventListener('keydown', e => {
   if (e.key === 'ArrowRight') $('#lightbox .next').click();
 });
 
+// ---------------------------------------------------------------- instellingen: logo
+function showLogo() {
+  const src = CFG.logo ? 'logo.png?v=' + CFG.logo : null;
+  $('#logo').hidden = !src; if (src) $('#logo').src = src;
+  $('#logoPrev').innerHTML = src ? `<img src="${src}" alt="Logo">` : '<span class="hint">Nog geen logo</span>';
+  $('#logoDel').hidden = !src;
+}
+$('#logoInput').addEventListener('change', async ev => {
+  const file = ev.target.files[0]; ev.target.value = '';
+  if (!file) return;
+  const fd = new FormData(); fd.append('logo', file);
+  try { CFG.logo = (await api('api/logo', {method: 'POST', body: fd})).logo; showLogo(); toast('Logo opgeslagen'); }
+  catch (e) { toast(e.message); }
+});
+$('#logoDel').addEventListener('click', async () => {
+  if (!confirm('Logo verwijderen?')) return;
+  try { await api('api/logo', {method: 'DELETE'}); CFG.logo = null; showLogo(); toast('Logo verwijderd'); }
+  catch (e) { toast(e.message); }
+});
+
 // ---------------------------------------------------------------- algemeen
 $$('[data-close]').forEach(b => b.addEventListener('click', () => b.closest('dialog').close()));
 $$('.tab').forEach(b => b.addEventListener('click', () => {
@@ -1158,7 +1199,8 @@ $$('.tab').forEach(b => b.addEventListener('click', () => {
   $('#view-log').hidden = TAB !== 'log';
   $('#view-tasks').hidden = TAB !== 'tasks';
   $('#view-cats').hidden = TAB !== 'cats';
-  $('#fab').hidden = TAB === 'cats';
+  $('#view-settings').hidden = TAB !== 'settings';
+  $('#fab').hidden = TAB === 'cats' || TAB === 'settings';
   if (TAB === 'cats') loadCats();
 }));
 $('#fab').addEventListener('click', () => TAB === 'log' ? openEntry() : openTask());
