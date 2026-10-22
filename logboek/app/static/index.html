@@ -115,6 +115,13 @@ p.hint{margin:0}
 #lightbox img{width:100%;height:100%;object-fit:contain;cursor:zoom-out}
 #lightbox .nav{position:fixed;top:50%;transform:translateY(-50%);border:0;background:rgba(255,255,255,.15);color:#fff;font-size:28px;width:46px;height:46px;border-radius:50%;cursor:pointer}
 #lightbox .prev{left:12px} #lightbox .next{right:12px}
+#camDlg{background:#000;width:100%;height:100%;max-width:none;max-height:none;margin:0;border-radius:0;padding:0;overflow:hidden}
+#camDlg[open]{display:flex;flex-direction:column}
+#camDlg video{flex:1;min-height:0;width:100%;object-fit:contain;background:#000}
+.camfoot{display:flex;align-items:center;justify-content:space-between;padding:14px 20px 22px;background:#000}
+.camfoot .btn{background:#2a2d33;color:#fff;border-color:#3a3d44;min-width:96px}
+.shutter{width:72px;height:72px;border-radius:50%;border:5px solid #fff;background:#fff;box-shadow:inset 0 0 0 3px #000;cursor:pointer}
+.shutter:active{transform:scale(.94)}
 #editor{background:#111;width:100%;height:100%;max-width:none;max-height:none;overflow:hidden;margin:0;border-radius:0;padding:0;color:#fff}
 #editor[open]{display:flex;flex-direction:column}
 .edbar,.edfoot{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 10px;background:#1d1f24}
@@ -293,6 +300,15 @@ p.hint{margin:0}
       <button type="button" class="btn primary" id="histDone">Uitgevoerd</button>
     </div>
   </form>
+</dialog>
+
+<dialog id="camDlg">
+  <video playsinline muted autoplay></video>
+  <div class="camfoot">
+    <button type="button" class="btn" id="camCancel">Annuleren</button>
+    <button type="button" class="shutter" id="camShot" aria-label="Foto maken"></button>
+    <span style="min-width:96px"></span>
+  </div>
 </dialog>
 
 <dialog id="editor">
@@ -557,6 +573,57 @@ async function addPhotos(ev) {
 }
 $('#fileInput').addEventListener('change', addPhotos);
 $('#camInput').addEventListener('change', addPhotos);
+
+// De Android-app van Home Assistant negeert capture="environment" (opent de galerij) en geeft bij
+// "multiple" geen bestanden terug. Daar dus één foto per keer kiezen en de camera in de pagina zelf.
+const HA_ANDROID = /Android/i.test(navigator.userAgent) && (() => {
+  if (/Home ?Assistant/i.test(navigator.userAgent) || 'externalApp' in window) return true;
+  try { return 'externalApp' in window.parent; } catch (_) { return false; }
+})();
+if (HA_ANDROID) $('#fileInput').removeAttribute('multiple');
+const IN_PAGE_CAMERA = HA_ANDROID && !!navigator.mediaDevices?.getUserMedia;
+
+let camStream = null;
+async function openCamera() {
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({audio: false,
+      video: {facingMode: {ideal: 'environment'}, width: {ideal: 4032}, height: {ideal: 3024}}});
+  } catch (e) {
+    console.warn('Camera niet beschikbaar', e);
+    toast(e.name === 'NotAllowedError'
+      ? 'Geen toegang tot de camera. Geef de Home Assistant-app cameratoestemming, of kies Uit galerij.'
+      : 'Camera niet beschikbaar; kies Uit galerij.');
+    return;
+  }
+  const v = $('#camDlg video');
+  v.srcObject = camStream;
+  $('#camDlg').showModal();
+  try { await v.play(); } catch (_) {}
+}
+function closeCamera() {
+  camStream?.getTracks().forEach(t => t.stop()); camStream = null;
+  $('#camDlg video').srcObject = null;
+  if ($('#camDlg').open) $('#camDlg').close();
+}
+$('#camCancel').addEventListener('click', closeCamera);
+$('#camDlg').addEventListener('cancel', closeCamera);
+$('#camShot').addEventListener('click', async () => {
+  const v = $('#camDlg video');
+  if (!v.videoWidth) return;
+  const c = Object.assign(document.createElement('canvas'), {width: v.videoWidth, height: v.videoHeight});
+  c.getContext('2d').drawImage(v, 0, 0);
+  closeCamera();
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
+  if (!blob) { toast('Foto maken mislukt'); return; }
+  photoBusy = true; renderPhotos();
+  try {
+    const file = await shrinkPhoto(new File([blob], 'camera.jpg', {type: 'image/jpeg'}));
+    pending.push({file, url: URL.createObjectURL(file)});
+  } finally { photoBusy = false; renderPhotos(); }
+});
+$('#photoList').addEventListener('click', ev => {
+  if (IN_PAGE_CAMERA && ev.target.closest('label[for="camInput"]')) { ev.preventDefault(); openCamera(); }
+}, true);
 
 $('#entryForm [name=task_id]').addEventListener('change', ev => {
   const t = TASKS.find(t => t.id == ev.target.value);

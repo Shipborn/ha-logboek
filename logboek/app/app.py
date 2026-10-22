@@ -32,7 +32,7 @@ from fpdf.enums import XPos, YPos
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 from PIL import Image, ImageOps
 
-VERSION = "0.13.0"
+VERSION = "0.13.1"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("logboek")

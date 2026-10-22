@@ -81,7 +81,7 @@ automation:
 
 - **Foto kan niet gelezen worden (iPhone)**: de browser zet HEIC-foto's meestal zelf om naar JPEG. Lukt dat niet, zet dan **Instellingen › Camera › Formaten** op **Meest compatibel**.
 - **Foto kan niet gelezen worden (Samsung)**: zet in de Camera-app **Instellingen › Geavanceerde opties › HEIF-foto's** uit.
-- **Camera opent niet in de Home Assistant-app**: geef de app toestemming voor de camera (Android: **Instellingen › Apps › Home Assistant › Machtigingen**), of kies **Uit galerij**.
+- **Camera in de Android-app van Home Assistant**: **Foto maken** opent daar een camera in het logboek zelf. De eerste keer vraagt de app om cameratoestemming; heb je die geweigerd, zet hem dan aan via **Instellingen › Apps › Home Assistant › Machtigingen › Camera**. Dit werkt alleen als je Home Assistant via **https** opent (bijvoorbeeld Nabu Casa). In de Android-app kies je bij **Uit galerij** één foto per keer.
 - **Geen dagmail**: probeer **Testmail sturen**; een foutmelding van de mailserver verschijnt dan in beeld. Gmail voorbeeld: `smtp_host` `smtp.gmail.com`, poort `587`, `starttls`, je Gmail-adres als gebruikersnaam en een app-wachtwoord (Google-account › Beveiliging › App-wachtwoorden).
 - **Geen sensoren in HA**: kijk in het **Logboek**-tabblad van de add-on. Daar staat of de MQTT-verbinding gelukt is.
 - **Motoruren worden niet getoond**: controleer of `engine_hours_entity` bestaat en een getal als status heeft.
