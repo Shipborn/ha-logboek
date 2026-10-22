@@ -54,6 +54,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-
 .taskrow .grow{flex:1;min-width:0}
 .due{font-size:13px;color:var(--muted);margin-top:4px}
 .btn{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:8px 14px;cursor:pointer;font-weight:600;white-space:nowrap}
+a.btn{text-decoration:none;color:inherit;display:inline-flex;align-items:center}
 .btn.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
 .btn.danger{color:var(--bad)}
 .btn:disabled{opacity:.6;cursor:default}
@@ -199,6 +200,7 @@ p.hint{margin:0}
     </div>
     <div class="dfoot">
       <button type="button" class="btn danger left" id="entryDelete" hidden>Verwijderen</button>
+      <a class="btn" id="entryPdf" download hidden>PDF</a>
       <button type="button" class="btn" data-close>Annuleren</button>
       <button type="submit" class="btn primary" id="entrySave">Opslaan</button>
     </div>
@@ -236,6 +238,7 @@ p.hint{margin:0}
     <div class="dhead"><h2 id="catTitle">Categorie</h2><button type="button" class="x" data-close>×</button></div>
     <div class="dbody" id="catBody"></div>
     <div class="dfoot">
+      <a class="btn left" id="catPdf" download>PDF</a>
       <button type="button" class="btn primary" id="catNew">Nieuwe logregel</button>
     </div>
   </form>
@@ -248,6 +251,7 @@ p.hint{margin:0}
     <div class="dbody" id="histBody"></div>
     <div class="dfoot">
       <button type="button" class="btn left" id="histEdit">Taak bewerken</button>
+      <a class="btn" id="histPdf" download>PDF</a>
       <button type="button" class="btn primary" id="histDone">Uitgevoerd</button>
     </div>
   </form>
@@ -385,6 +389,8 @@ function openEntry(entry = null, preset = {}) {
   const f = $('#entryForm'); f.reset();
   $('#entryTitle').textContent = entry ? 'Logregel bewerken' : 'Nieuwe logregel';
   $('#entryDelete').hidden = !entry;
+  $('#entryPdf').hidden = !entry;
+  if (entry) $('#entryPdf').href = 'api/pdf/entry/' + entry.id;
   const v = entry || {datum: today(), ...preset};
   f.datum.value = v.datum || today();
   f.categorie.value = v.categorie || '';
@@ -586,6 +592,7 @@ async function renderHistory() {
   const list = await api('api/entries?task_id=' + t.id);   // nieuwste eerst
   $('#histTitle').textContent = t.naam;
   $('#histDone').hidden = !t.actief;
+  $('#histPdf').href = 'api/pdf/task/' + t.id;
 
   // tussenpozen tussen opeenvolgende uitvoeringen
   const asc = [...list].reverse(), dGaps = [], hGaps = [];
@@ -878,8 +885,11 @@ async function renderCatView() {
   const list = await api('api/entries?categorie=' + encodeURIComponent(catView));   // nieuwste eerst
   const tijd = list.reduce((s, e) => s + (e.duur_minuten || 0), 0);
   const taken = TASKS.filter(t => t.categorie === catView);
+  if (!CATS.length) await loadCats();
   const cat = CATS.find(c => c.naam === catView);
   $('#catTitle').textContent = catView;
+  $('#catPdf').hidden = !cat;
+  if (cat) $('#catPdf').href = 'api/pdf/category/' + cat.id;
   $('#catBody').innerHTML = `
     <div class="catents"><h3>Meetwaarden uit Home Assistant
       <span class="hint">(bij elke nieuwe logregel in deze categorie automatisch opgeslagen)</span></h3>

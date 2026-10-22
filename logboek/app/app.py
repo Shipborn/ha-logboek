@@ -27,10 +27,12 @@ from email.utils import formataddr, make_msgid
 from zoneinfo import ZoneInfo
 
 import requests
+from fpdf import FPDF
+from fpdf.enums import XPos, YPos
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 from PIL import Image, ImageOps
 
-VERSION = "0.9.0"
+VERSION = "0.10.0"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("logboek")
@@ -869,6 +871,220 @@ def api_export():
         mimetype="text/csv",
         headers={"Content-Disposition": f"attachment; filename=logboek-{date.today().isoformat()}.csv"},
     )
+
+
+# --------------------------------------------------------------------------- PDF
+
+FONT_CANDIDATES = [  # (normaal, vet): Alpine-container, daarna macOS voor lokaal testen
+    ("/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"),
+    ("/System/Library/Fonts/Supplemental/Arial.ttf", "/System/Library/Fonts/Supplemental/Arial Bold.ttf"),
+]
+STATUS_LABEL = {"achterstallig": "Achterstallig", "binnenkort": "Binnenkort", "onbekend": "Nog niet gelogd",
+                "ok": "In orde", "inactief": "Inactief"}
+MUTED = (104, 113, 128)
+
+
+def nl_date(d):
+    return date.fromisoformat(d).strftime("%d-%m-%Y") if d else ""
+
+
+def nl_stamp(s):
+    return parse_stamp(s).astimezone(local_tz()).strftime("%d-%m-%Y %H:%M") if s else ""
+
+
+class LogPdf(FPDF):
+    def __init__(self, subtitle):
+        super().__init__(format="A4")
+        self.subtitle = subtitle
+        self.set_margins(15, 15, 15)
+        self.set_auto_page_break(True, 15)
+        for regular, bold in FONT_CANDIDATES:
+            if os.path.exists(regular) and os.path.exists(bold):
+                self.add_font("Log", "", regular)
+                self.add_font("Log", "B", bold)
+                self.fam = "Log"
+                break
+        else:
+            self.fam = "Helvetica"  # alleen latin-1
+        self.set_title(f"{OPT['title']} – {subtitle}")
+        self.add_page()
+
+    def footer(self):
+        self.set_y(-12)
+        self.set_font(self.fam, "", 8)
+        self.set_text_color(*MUTED)
+        self.cell(0, 5, f"{OPT['title']} · {self.subtitle} · gemaakt {datetime.now(local_tz()):%d-%m-%Y %H:%M}"
+                        f" · pagina {self.page_no()}/{{nb}}", align="C")
+
+    def line_text(self, txt, size=10, bold=False, color=(27, 34, 48), h=None):
+        self.set_font(self.fam, "B" if bold else "", size)
+        self.set_text_color(*color)
+        self.multi_cell(0, h or size * 0.5, txt, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+    def heading(self, title, sub=None):
+        self.line_text(OPT["title"], 9, color=MUTED)
+        self.line_text(title, 18, bold=True, h=9)
+        if sub:
+            self.line_text(sub, 10, color=MUTED)
+        self.ln(3)
+
+    def stats(self, items):
+        w = (self.epw - 3 * (len(items) - 1)) / len(items)
+        y = self.get_y()
+        for i, (value, label) in enumerate(items):
+            x = self.l_margin + i * (w + 3)
+            self.set_fill_color(238, 241, 245)
+            self.rect(x, y, w, 15, style="F", round_corners=True, corner_radius=2)
+            self.set_xy(x + 3, y + 2)
+            self.set_font(self.fam, "B", 12); self.set_text_color(27, 34, 48)
+            self.cell(w - 6, 6, str(value))
+            self.set_xy(x + 3, y + 8)
+            self.set_font(self.fam, "", 8); self.set_text_color(*MUTED)
+            self.cell(w - 6, 5, label)
+        self.set_xy(self.l_margin, y + 19)
+
+    def separator(self):
+        self.set_draw_color(226, 229, 234)
+        self.line(self.l_margin, self.get_y(), self.w - self.r_margin, self.get_y())
+        self.ln(4)
+
+    PHOTO_GAP = 4
+
+    def photo_rows(self, fotos, large):
+        """Foto's in rijen (2 per rij bij één logregel, anders 4): [(pad, hoogte, omschrijving), ...]."""
+        cols = 2 if large else 4
+        w = (self.epw - self.PHOTO_GAP * (cols - 1)) / cols
+        items = []
+        for f in fotos:
+            path = os.path.join(PHOTO_DIR, f["bestand"] if large else f["thumb"])
+            if not os.path.exists(path):
+                continue
+            with Image.open(path) as im:
+                items.append((path, w * im.height / im.width, f.get("omschrijving")))
+        return w, [items[i:i + cols] for i in range(0, len(items), cols)]
+
+    @staticmethod
+    def row_height(row):
+        return max(h for _, h, _ in row) + (12 if any(c for _, _, c in row) else 0) + 2
+
+    def photos(self, w, rows):
+        for row in rows:
+            self._photo_row(row, w, self.PHOTO_GAP)
+
+    def _photo_row(self, row, w, gap):
+        if self.get_y() + self.row_height(row) > self.page_break_trigger:
+            self.add_page()
+        y = self.get_y()
+        bottom = y
+        for i, (path, h, cap) in enumerate(row):
+            x = self.l_margin + i * (w + gap)
+            self.image(path, x=x, y=y, w=w, h=h)
+            yy = y + h + 1
+            if cap:
+                self.set_xy(x, yy)
+                self.set_font(self.fam, "", 8); self.set_text_color(*MUTED)
+                self.multi_cell(w, 3.6, cap, new_x=XPos.LEFT, new_y=YPos.NEXT)
+                yy = self.get_y()
+            bottom = max(bottom, yy)
+        self.set_xy(self.l_margin, bottom + 3)
+
+    def entry(self, e, large=False):
+        w, rows = self.photo_rows(e["fotos"], large)
+        # titel niet los onderaan een pagina: samen met de tekst en de eerste rij foto's
+        need = 25 + (self.row_height(rows[0]) if rows else 0)
+        if self.get_y() + need > self.page_break_trigger and self.get_y() > self.t_margin + 1:
+            self.add_page()
+        self.line_text(e["titel"], 13, bold=True, h=6.5)
+        meta = [f"Datum {nl_date(e['datum'])}", e["categorie"],
+                f"Taak: {e['taak_naam']}" if e["taak_naam"] else None,
+                f"Door: {e['uitgevoerd_door']}" if e["uitgevoerd_door"] else None,
+                f"Bestede tijd: {fmt_duur(e['duur_minuten'])}" if e["duur_minuten"] is not None else None,
+                f"Opgeslagen {nl_stamp(e['created_at'])}" if e["created_at"] else None]
+        self.line_text(" · ".join(m for m in meta if m), 9, color=MUTED)
+        if e["omschrijving"]:
+            self.ln(1.5)
+            self.line_text(e["omschrijving"], 10)
+        if e["waarden"]:
+            self.ln(1.5)
+            self.line_text("Meetwaarden: " + fmt_values(e["waarden"]), 9)
+        if rows:
+            self.ln(2.5)
+            self.photos(w, rows)
+        self.ln(2)
+        self.separator()
+
+
+def pdf_response(pdf, name):
+    pdf.alias_nb_pages()
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "logboek"
+    return Response(bytes(pdf.output()), mimetype="application/pdf", headers={
+        "Content-Disposition": f'attachment; filename="{slug}-{date.today().isoformat()}.pdf"'})
+
+
+@app.get("/api/pdf/entry/<int:eid>")
+def api_pdf_entry(eid):
+    with get_db() as conn:
+        rows = entries_with_photos(conn, "WHERE e.id = ?", (eid,))
+    if not rows:
+        abort(404, "Logregel niet gevonden")
+    e = rows[0]
+    pdf = LogPdf("logregel")
+    pdf.heading("Logregel")
+    pdf.entry(e, large=True)
+    return pdf_response(pdf, f"logregel {e['titel']}")
+
+
+@app.get("/api/pdf/task/<int:tid>")
+def api_pdf_task(tid):
+    with get_db() as conn:
+        t = next((t for t in all_task_status(conn, engine_hours()) if t["id"] == tid), None)
+        if not t:
+            abort(404, "Taak niet gevonden")
+        entries = entries_with_photos(conn, "WHERE e.task_id = ?", (tid,))
+    interval = [f"elke {t['interval_dagen']} dagen" if t["interval_dagen"] else None,
+                f"elke {t['interval_uren']:g} motoruren" if t["interval_uren"] else None]
+    volgende = [nl_date(t["volgende_datum"]) if t["volgende_datum"] else None,
+                f"bij {t['volgende_uren']:g} u" if t["volgende_uren"] is not None else None]
+    sub = " · ".join(x for x in [t["categorie"], " of ".join(i for i in interval if i) or None,
+                                 STATUS_LABEL.get(t["status"], t["status"]),
+                                 "volgende: " + " of ".join(v for v in volgende if v) if any(volgende) else None] if x)
+    pdf = LogPdf(f"taak {t['naam']}")
+    pdf.heading(t["naam"], sub)
+    tijd = sum(e["duur_minuten"] or 0 for e in entries)
+    pdf.stats([(f"{len(entries)}×", "uitgevoerd"),
+               (nl_date(t["laatst_datum"]) or "—", "laatst uitgevoerd"),
+               (fmt_duur(tijd) or "—", "totale tijd")])
+    if t["notitie"]:
+        pdf.line_text(t["notitie"], 10)
+        pdf.ln(3)
+    pdf.separator()
+    for e in entries:   # nieuwste eerst, zoals in de app
+        pdf.entry(e)
+    if not entries:
+        pdf.line_text("Nog niet uitgevoerd.", 10, color=MUTED)
+    return pdf_response(pdf, f"taak {t['naam']}")
+
+
+@app.get("/api/pdf/category/<int:cid>")
+def api_pdf_category(cid):
+    with get_db() as conn:
+        c = conn.execute("SELECT naam FROM categories WHERE id = ?", (cid,)).fetchone()
+        if not c:
+            abort(404, "Categorie niet gevonden")
+        entries = entries_with_photos(conn, "WHERE e.categorie = ?", (c["naam"],))
+        taken = conn.execute("SELECT COUNT(*) FROM tasks WHERE categorie = ?", (c["naam"],)).fetchone()[0]
+    pdf = LogPdf(f"categorie {c['naam']}")
+    pdf.heading(c["naam"], "Categorie")
+    tijd = sum(e["duur_minuten"] or 0 for e in entries)
+    pdf.stats([(len(entries), "logregel" if len(entries) == 1 else "logregels"),
+               (fmt_duur(tijd) or "—", "totale tijd"),
+               (taken, "taak" if taken == 1 else "taken")])
+    pdf.separator()
+    for e in entries:   # nieuwste eerst, zoals in de app
+        pdf.entry(e)
+    if not entries:
+        pdf.line_text("Nog geen logregels in deze categorie.", 10, color=MUTED)
+    return pdf_response(pdf, f"categorie {c['naam']}")
 
 
 # --------------------------------------------------------------------------- dagmail
