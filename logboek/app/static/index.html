@@ -106,6 +106,10 @@ label.check input{width:auto}
 .vh{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;pointer-events:none}
 .hint{font-size:12px;color:var(--muted);font-weight:400}
 .meta .stamp{margin-left:auto;font-size:12px}
+.pdfbtn{border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:12px;font-weight:600;color:var(--accent);text-decoration:none;background:var(--card)}
+.pdfbtn:hover{border-color:var(--accent)}
+.meta .pdfbtn.end{margin-left:auto}
+.ib.pdf{width:auto;padding:0 8px;font-size:12px;font-weight:600;color:var(--accent);text-decoration:none;display:inline-flex;align-items:center}
 p.hint{margin:0}
 #lightbox{background:#000;width:100vw;height:100vh;max-width:100vw;max-height:100vh;margin:0;border-radius:0}
 #lightbox img{width:100%;height:100%;object-fit:contain;cursor:zoom-out}
@@ -237,7 +241,6 @@ p.hint{margin:0}
     </div>
     <div class="dfoot">
       <button type="button" class="btn danger left" id="entryDelete" hidden>Verwijderen</button>
-      <a class="btn" id="entryPdf" download hidden>PDF</a>
       <button type="button" class="btn" data-close>Annuleren</button>
       <button type="submit" class="btn primary" id="entrySave">Opslaan</button>
     </div>
@@ -275,7 +278,6 @@ p.hint{margin:0}
     <div class="dhead"><h2 id="catTitle">Categorie</h2><button type="button" class="x" data-close>×</button></div>
     <div class="dbody" id="catBody"></div>
     <div class="dfoot">
-      <a class="btn left" id="catPdf" download>PDF</a>
       <button type="button" class="btn primary" id="catNew">Nieuwe logregel</button>
     </div>
   </form>
@@ -288,7 +290,6 @@ p.hint{margin:0}
     <div class="dbody" id="histBody"></div>
     <div class="dfoot">
       <button type="button" class="btn left" id="histEdit">Taak bewerken</button>
-      <a class="btn" id="histPdf" download>PDF</a>
       <button type="button" class="btn primary" id="histDone">Uitgevoerd</button>
     </div>
   </form>
@@ -419,6 +420,7 @@ function renderEntries() {
         ${e.taak_naam ? `<span class="chip">⟳ ${esc(e.taak_naam)}</span>` : ''}
         ${e.duur_minuten != null ? `<span title="Bestede tijd">⏱ ${fmtDur(e.duur_minuten)}</span>` : ''}
         ${e.created_at ? `<span class="stamp" title="Opgeslagen">opgeslagen ${fmtStamp(e.created_at)}</span>` : ''}
+        <a class="pdfbtn${e.created_at ? '' : ' end'}" href="api/pdf/entry/${e.id}" download title="PDF van deze logregel">PDF</a>
       </div>
       <h3>${esc(e.titel)}</h3>
       ${e.omschrijving ? `<p class="desc">${esc(e.omschrijving)}</p>` : ''}
@@ -429,6 +431,7 @@ function renderEntries() {
 }
 
 $('#entries').addEventListener('click', ev => {
+  if (ev.target.closest('.pdfbtn')) return;
   const img = ev.target.closest('img[data-lb]');
   if (img) {
     const e = ENTRIES.find(x => x.id == img.dataset.lb);
@@ -458,8 +461,6 @@ function openEntry(entry = null, preset = {}) {
   const f = $('#entryForm'); f.reset();
   $('#entryTitle').textContent = entry ? 'Logregel bewerken' : 'Nieuwe logregel';
   $('#entryDelete').hidden = !entry;
-  $('#entryPdf').hidden = !entry;
-  if (entry) $('#entryPdf').href = 'api/pdf/entry/' + entry.id;
   const v = entry || {datum: today(), ...preset};
   f.datum.value = v.datum || today();
   f.categorie.value = v.categorie || '';
@@ -624,7 +625,8 @@ function renderTasks() {
       <div class="taskrow">
         <div class="grow">
           <div class="meta"><span class="status"><span class="dot"></span>${LABEL[t.status]}</span>
-            ${t.categorie ? `<span class="chip">${esc(t.categorie)}</span>` : ''}</div>
+            ${t.categorie ? `<span class="chip">${esc(t.categorie)}</span>` : ''}
+            <a class="pdfbtn end" href="api/pdf/task/${t.id}" download title="PDF van deze taak met alle uitvoeringen">PDF</a></div>
           <h3>${esc(t.naam)}</h3>
           <div class="due">Volgende: ${dueText(t)}</div>
           <div class="due">${t.laatst_datum ? `Laatst: ${fmtDate(t.laatst_datum)}${t.laatst_uren != null ? ` · ${fmtNum(t.laatst_uren)} u` : ''}` :
@@ -637,6 +639,7 @@ function renderTasks() {
 }
 
 $('#tasks').addEventListener('click', ev => {
+  if (ev.target.closest('.pdfbtn')) return;
   const done = ev.target.closest('[data-done]');
   if (done) {
     const t = TASKS.find(x => x.id == done.dataset.done);
@@ -663,7 +666,6 @@ async function renderHistory() {
   const list = await api('api/entries?task_id=' + t.id);   // nieuwste eerst
   $('#histTitle').textContent = t.naam;
   $('#histDone').hidden = !t.actief;
-  $('#histPdf').href = 'api/pdf/task/' + t.id;
 
   // tussenpozen tussen opeenvolgende uitvoeringen
   const asc = [...list].reverse(), dGaps = [], hGaps = [];
@@ -874,6 +876,7 @@ function renderCats() {
     return `
       <div class="card catrow" data-id="${c.id}">
         <div class="info" data-act="open" title="Logregels bekijken"><div class="name">${esc(c.naam)}</div><div class="use">${use}</div></div>
+        <a class="ib pdf" href="api/pdf/category/${c.id}" download title="PDF van alle logregels in deze categorie">PDF</a>
         <button class="ib" data-act="up" ${i === 0 ? 'disabled' : ''} title="Omhoog" aria-label="Omhoog">↑</button>
         <button class="ib" data-act="down" ${i === CATS.length - 1 ? 'disabled' : ''} title="Omlaag" aria-label="Omlaag">↓</button>
         <button class="ib" data-act="edit" title="Hernoemen" aria-label="Hernoemen">✎</button>
@@ -959,8 +962,6 @@ async function renderCatView() {
   if (!CATS.length) await loadCats();
   const cat = CATS.find(c => c.naam === catView);
   $('#catTitle').textContent = catView;
-  $('#catPdf').hidden = !cat;
-  if (cat) $('#catPdf').href = 'api/pdf/category/' + cat.id;
   $('#catBody').innerHTML = `
     <div class="catents"><h3>Meetwaarden uit Home Assistant
       <span class="hint">(bij elke nieuwe logregel in deze categorie automatisch opgeslagen)</span></h3>
