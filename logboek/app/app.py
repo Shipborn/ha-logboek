@@ -30,7 +30,7 @@ import requests
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 from PIL import Image, ImageOps
 
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("logboek")
@@ -193,7 +193,8 @@ def init_db():
         conn.executescript(SCHEMA)
         for table, col, typ in (("entries", "duur_minuten", "INTEGER"),
                                 ("tasks", "entiteiten", "TEXT"),
-                                ("categories", "entiteiten", "TEXT")):
+                                ("categories", "entiteiten", "TEXT"),
+                                ("photos", "omschrijving", "TEXT")):
             if col not in {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
         if conn.execute("SELECT COUNT(*) FROM categories").fetchone()[0] == 0:
@@ -439,16 +440,17 @@ def task_from_json(d):
     }
 
 
-def load_images(files):
-    """Lees en valideer alle foto's vóór er iets in de database komt."""
+def load_images(files, captions=()):
+    """Lees en valideer alle foto's vóór er iets in de database komt; geeft (afbeelding, omschrijving)."""
     images = []
-    for fs in files:
+    captions = list(captions)
+    for i, fs in enumerate(files):
         if not fs or not fs.filename:
             continue
         try:
             img = Image.open(fs.stream)
             img = ImageOps.exif_transpose(img)
-            images.append(img.convert("RGB"))
+            images.append((img.convert("RGB"), text(captions[i]) if i < len(captions) else None))
         except Exception as e:  # noqa: BLE001
             log.warning("Foto %s niet leesbaar: %s", fs.filename, e)
             abort(400, f"Kan foto '{fs.filename}' niet lezen. Gebruik JPEG of PNG "
@@ -459,7 +461,7 @@ def load_images(files):
 
 def save_images(conn, entry_id, images):
     max_px = int(OPT.get("photo_max_px") or 0)
-    for img in images:
+    for img, caption in images:
         name = uuid.uuid4().hex
         big = img.copy()
         if max_px > 0:
@@ -469,8 +471,8 @@ def save_images(conn, entry_id, images):
         thumb.thumbnail((480, 480))
         thumb.save(os.path.join(PHOTO_DIR, f"{name}_t.jpg"), "JPEG", quality=75)
         conn.execute(
-            "INSERT INTO photos (entry_id, bestand, thumb, created_at) VALUES (?,?,?,?)",
-            (entry_id, f"{name}.jpg", f"{name}_t.jpg", now()),
+            "INSERT INTO photos (entry_id, bestand, thumb, omschrijving, created_at) VALUES (?,?,?,?,?)",
+            (entry_id, f"{name}.jpg", f"{name}_t.jpg", caption, now()),
         )
 
 
@@ -496,7 +498,7 @@ def entries_with_photos(conn, where="", args=()):
         q = f"SELECT * FROM photos WHERE entry_id IN ({','.join('?' * len(ids))}) ORDER BY id"
         for p in conn.execute(q, ids):
             photos.setdefault(p["entry_id"], []).append(
-                {"id": p["id"], "bestand": p["bestand"], "thumb": p["thumb"]})
+                {"id": p["id"], "bestand": p["bestand"], "thumb": p["thumb"], "omschrijving": p["omschrijving"]})
     values = {}
     if ids:
         q = f"SELECT * FROM entry_values WHERE entry_id IN ({','.join('?' * len(ids))}) ORDER BY id"
@@ -629,7 +631,7 @@ def api_entry_create():
     data = entry_from_form(request.form)
     if "motoruren" not in request.form:
         data["motoruren"] = engine_hours()   # voor taakintervallen op motoruren
-    images = load_images(request.files.getlist("fotos"))
+    images = load_images(request.files.getlist("fotos"), request.form.getlist("foto_omschrijving"))
     with get_db() as conn:
         cur = conn.execute(
             "INSERT INTO entries (datum, categorie, titel, omschrijving, motoruren, kosten, "
@@ -648,7 +650,7 @@ def api_entry_create():
 @app.put("/api/entries/<int:eid>")
 def api_entry_update(eid):
     data = entry_from_form(request.form)
-    images = load_images(request.files.getlist("fotos"))
+    images = load_images(request.files.getlist("fotos"), request.form.getlist("foto_omschrijving"))
     with get_db() as conn:
         old = conn.execute("SELECT motoruren, kosten FROM entries WHERE id = ?", (eid,)).fetchone()
         for k in ("motoruren", "kosten"):
@@ -662,6 +664,11 @@ def api_entry_update(eid):
         )
         if cur.rowcount == 0:
             abort(404, "Logregel niet gevonden")
+        for key, value in request.form.items():   # omschrijvingen van bestaande foto's
+            m = re.fullmatch(r"foto_(\d+)_omschrijving", key)
+            if m:
+                conn.execute("UPDATE photos SET omschrijving = ? WHERE id = ? AND entry_id = ?",
+                             (text(value), int(m.group(1)), eid))
         save_images(conn, eid, images)
         result = entries_with_photos(conn, "WHERE e.id = ?", (eid,))[0]
     changed()
@@ -855,7 +862,7 @@ def api_export():
             "" if r["motoruren"] is None else str(r["motoruren"]).replace(".", ","),
             r["uitgevoerd_door"] or "", fmt_minutes(r["duur_minuten"]), fmt_values(r["waarden"]),
             r["created_at"] or "",
-            ", ".join(p["bestand"] for p in r["fotos"]),
+            ", ".join(p["bestand"] + (f' ({p["omschrijving"]})' if p["omschrijving"] else "") for p in r["fotos"]),
         ])
     return Response(
         "\ufeff" + buf.getvalue(),
@@ -905,6 +912,7 @@ def build_report(entries, subject):
         lines += [f"  {e['omschrijving']}"] if e["omschrijving"] else []
         lines += [f"  Meetwaarden: {fmt_values(e['waarden'])}"] if e["waarden"] else []
         lines += [f"  {len(e['fotos'])} foto('s)"] if e["fotos"] else []
+        lines += [f"    - {p['omschrijving']}" for p in e["fotos"] if p["omschrijving"]]
         lines.append("")
 
         thumbs = []
@@ -913,7 +921,10 @@ def build_report(entries, subject):
             if os.path.exists(path):
                 cid = make_msgid(domain="logboek")
                 images.append((cid, path))
-                thumbs.append(f'<img src="cid:{cid[1:-1]}" width="140" style="border-radius:6px;margin:0 6px 6px 0">')
+                cap = (f'<div style="font-size:12px;color:#687180;margin-top:2px">{html.escape(p["omschrijving"])}</div>'
+                       if p["omschrijving"] else "")
+                thumbs.append(f'<div style="display:inline-block;vertical-align:top;width:140px;margin:0 6px 6px 0">'
+                              f'<img src="cid:{cid[1:-1]}" width="140" style="border-radius:6px;display:block">{cap}</div>')
         vals = "".join(
             f'<span style="background:#eef1f5;border-radius:6px;padding:1px 7px;margin:0 4px 4px 0;'
             f'display:inline-block;font-size:12px">{html.escape(v["naam"] or "")}: '
