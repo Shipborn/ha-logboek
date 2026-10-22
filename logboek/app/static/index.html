@@ -105,6 +105,23 @@ p.hint{margin:0}
 #lightbox img{width:100%;height:100%;object-fit:contain;cursor:zoom-out}
 #lightbox .nav{position:fixed;top:50%;transform:translateY(-50%);border:0;background:rgba(255,255,255,.15);color:#fff;font-size:28px;width:46px;height:46px;border-radius:50%;cursor:pointer}
 #lightbox .prev{left:12px} #lightbox .next{right:12px}
+#editor{background:#111;width:100%;height:100%;max-width:none;max-height:none;overflow:hidden;margin:0;border-radius:0;padding:0;color:#fff}
+#editor[open]{display:flex;flex-direction:column}
+.edbar,.edfoot{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 10px;background:#1d1f24}
+.edbar .grp{display:flex;gap:4px;align-items:center}
+.edbar .sep{width:1px;height:28px;background:#3a3d44;margin:0 4px}
+.edb{min-width:40px;height:40px;border-radius:8px;border:1px solid #3a3d44;background:#2a2d33;color:#fff;font-size:18px;cursor:pointer;padding:0 8px}
+.edb.on{border-color:#fff;background:#3d4250}
+.edc{width:30px;height:30px;border-radius:50%;border:2px solid #555;cursor:pointer;padding:0}
+.edc.on{border-color:#fff;box-shadow:0 0 0 2px #111 inset}
+#edText{flex:1;min-width:160px;height:40px;border-radius:8px;border:1px solid #3a3d44;background:#2a2d33;color:#fff;padding:0 10px;font-size:16px}
+.edwrap{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:8px;overflow:hidden}
+#edCanvas{touch-action:none;background:#000;cursor:crosshair}
+.edfoot .spacer{flex:1}
+.edfoot .btn{background:#2a2d33;color:#fff;border-color:#3a3d44}
+.edfoot .btn.primary{background:var(--accent);border-color:var(--accent)}
+.ph .edit{position:absolute;left:-6px;bottom:-6px;width:28px;height:28px;border-radius:50%;border:0;background:var(--accent);color:#fff;font-size:14px;cursor:pointer;top:auto;right:auto}
+.ph .tag{position:absolute;left:4px;top:4px;background:rgba(0,0,0,.6);color:#fff;font-size:10px;border-radius:4px;padding:1px 4px}
 #lightbox figure{margin:0;width:100%;height:100%;display:flex;flex-direction:column}
 #lightbox figure img{flex:1;min-height:0;height:auto}
 #lightbox figcaption{color:#fff;background:rgba(0,0,0,.6);padding:10px 16px 14px;font-size:15px;white-space:pre-line;text-align:center}
@@ -255,6 +272,37 @@ p.hint{margin:0}
       <button type="button" class="btn primary" id="histDone">Uitgevoerd</button>
     </div>
   </form>
+</dialog>
+
+<dialog id="editor">
+  <div class="edbar">
+    <div class="grp" id="edTools">
+      <button type="button" class="edb on" data-tool="pen" title="Vrij tekenen">✏️</button>
+      <button type="button" class="edb" data-tool="arrow" title="Pijl">➜</button>
+      <button type="button" class="edb" data-tool="line" title="Lijn">╱</button>
+      <button type="button" class="edb" data-tool="rect" title="Rechthoek">▭</button>
+      <button type="button" class="edb" data-tool="ellipse" title="Cirkel">◯</button>
+      <button type="button" class="edb" data-tool="text" title="Tekst">T</button>
+    </div>
+    <span class="sep"></span>
+    <div class="grp" id="edColors"></div>
+    <span class="sep"></span>
+    <div class="grp" id="edSizes">
+      <button type="button" class="edb" data-size="0.6" title="Dun">S</button>
+      <button type="button" class="edb on" data-size="1" title="Normaal">M</button>
+      <button type="button" class="edb" data-size="1.8" title="Dik">L</button>
+    </div>
+    <input id="edText" placeholder="Typ tekst en tik op de foto" hidden>
+  </div>
+  <div class="edwrap"><canvas id="edCanvas"></canvas></div>
+  <div class="edfoot">
+    <button type="button" class="btn" id="edUndo">↶ Ongedaan maken</button>
+    <button type="button" class="btn" id="edClear">Wissen</button>
+    <button type="button" class="btn" id="edRestore" hidden>Origineel herstellen</button>
+    <span class="spacer"></span>
+    <button type="button" class="btn" id="edCancel">Annuleren</button>
+    <button type="button" class="btn primary" id="edSave">Opslaan</button>
+  </div>
 </dialog>
 
 <dialog id="lightbox">
@@ -419,9 +467,9 @@ function renderPhotos() {
   const existing = editing ? editing.fotos : [];
   const cap = (name, v, attr) => `<textarea name="${name}" ${attr} rows="3" placeholder="Omschrijving bij deze foto (optioneel)">${esc(v ?? '')}</textarea>`;
   $('#photoList').innerHTML =
-    existing.map((p, i) => `<div class="phrow"><div class="ph"><img src="photos/${p.thumb}" data-ex="${i}" alt=""><button type="button" data-del="${p.id}" aria-label="Foto verwijderen">×</button></div>
+    existing.map((p, i) => `<div class="phrow"><div class="ph"><img src="photos/${p.thumb}" data-ex="${i}" alt="">${p.bewerkt ? '<span class="tag">bewerkt</span>' : ''}<button type="button" data-del="${p.id}" aria-label="Foto verwijderen">×</button><button type="button" class="edit" data-edit-ex="${i}" aria-label="Foto bewerken" title="Tekenen / tekst">✎</button></div>
       ${cap(`foto_${p.id}_omschrijving`, p.id in capEdits ? capEdits[p.id] : p.omschrijving, `data-cap-ex="${p.id}"`)}</div>`).join('') +
-    pending.map((p, i) => `<div class="phrow"><div class="ph new"><img src="${p.url}" data-new="${i}" alt=""><button type="button" data-rm="${i}" aria-label="Foto weghalen">×</button></div>
+    pending.map((p, i) => `<div class="phrow"><div class="ph new"><img src="${p.url}" data-new="${i}" alt=""><button type="button" data-rm="${i}" aria-label="Foto weghalen">×</button><button type="button" class="edit" data-edit-new="${i}" aria-label="Foto bewerken" title="Tekenen / tekst">✎</button></div>
       ${cap('foto_omschrijving', p.cap, `data-cap-new="${i}"`)}</div>`).join('') +
     `<div class="addrow"><label class="addph${photoBusy ? ' busy' : ''}" for="camInput"><span>📷</span>Foto maken</label>` +
     `<label class="addph${photoBusy ? ' busy' : ''}" for="fileInput"><span>🖼️</span>${photoBusy ? 'Bezig…' : 'Uit galerij'}</label></div>`;
@@ -434,6 +482,8 @@ $('#photoList').addEventListener('input', ev => {
 
 $('#photoList').addEventListener('click', async ev => {
   const t = ev.target;
+  if (t.dataset.editEx != null) { const p = editing.fotos[+t.dataset.editEx]; openEditor('photos/' + p.bestand, {photo: p}); return; }
+  if (t.dataset.editNew != null) { const p = pending[+t.dataset.editNew]; openEditor(p.url, {pending: p}); return; }
   if (t.dataset.rm != null) { URL.revokeObjectURL(pending[t.dataset.rm].url); pending.splice(+t.dataset.rm, 1); renderPhotos(); return; }
   if (t.dataset.del != null) {
     if (!confirm('Deze foto definitief verwijderen?')) return;
@@ -914,6 +964,175 @@ async function renderCatView() {
 $('#catBody').addEventListener('click', tlClick);
 $('#catNew').addEventListener('click', () => openEntry(null, {categorie: catView}));
 $('#catDlg').addEventListener('close', () => { catView = null; });
+
+// ---------------------------------------------------------------- foto bewerken (tekenen, pijlen, tekst)
+// Vormen worden in beeldcoördinaten bewaard; bij Opslaan wordt alles in de foto "gebakken".
+const ED_COLORS = ['#e53935', '#fdd835', '#43a047', '#1e88e5', '#ffffff', '#000000'];
+const ed = {img: null, shapes: [], cur: null, tool: 'pen', color: ED_COLORS[0], size: 1, target: null, base: null};
+$('#edColors').innerHTML = ED_COLORS.map((c, i) =>
+  `<button type="button" class="edc${i ? '' : ' on'}" data-color="${c}" style="background:${c}" aria-label="Kleur"></button>`).join('');
+
+async function openEditor(src, target) {
+  ed.target = target; ed.shapes = []; ed.cur = null;
+  const img = new Image();
+  try {
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = src; });
+  } catch (_) { toast('Foto kan niet geladen worden'); return; }
+  ed.img = img;
+  const c = $('#edCanvas');
+  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  ed.unit = Math.max(c.width, c.height) / 160;   // lijndikte schaalt mee met de foto
+  $('#edRestore').hidden = !target.photo?.bewerkt;
+  $('#editor').showModal();
+  fitEditor(); rebuildBase(); drawEditor();
+}
+
+function fitEditor() {
+  const c = $('#edCanvas'), w = $('.edwrap');
+  const s = Math.min((w.clientWidth - 16) / c.width, (w.clientHeight - 16) / c.height);
+  c.style.width = c.width * s + 'px'; c.style.height = c.height * s + 'px';
+}
+window.addEventListener('resize', () => { if ($('#editor').open) fitEditor(); });
+
+function rebuildBase() {   // foto + afgeronde vormen, zodat tekenen soepel blijft
+  const c = $('#edCanvas');
+  ed.base = Object.assign(document.createElement('canvas'), {width: c.width, height: c.height});
+  const g = ed.base.getContext('2d');
+  g.drawImage(ed.img, 0, 0);
+  ed.shapes.forEach(sh => drawShape(g, sh));
+}
+
+function drawEditor() {
+  const g = $('#edCanvas').getContext('2d');
+  g.drawImage(ed.base, 0, 0);
+  if (ed.cur) drawShape(g, ed.cur);
+}
+
+function drawShape(g, sh) {
+  g.save();
+  g.strokeStyle = g.fillStyle = sh.color;
+  g.lineWidth = sh.w; g.lineCap = g.lineJoin = 'round';
+  const {a, b} = sh;
+  if (sh.tool === 'pen') {
+    g.beginPath(); sh.pts.forEach((p, i) => i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)); g.stroke();
+  } else if (sh.tool === 'line' || sh.tool === 'arrow') {
+    g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+    if (sh.tool === 'arrow') {
+      const ang = Math.atan2(b.y - a.y, b.x - a.x), len = sh.w * 4 + 10;
+      g.beginPath(); g.moveTo(b.x, b.y);
+      g.lineTo(b.x - len * Math.cos(ang - 0.45), b.y - len * Math.sin(ang - 0.45));
+      g.lineTo(b.x - len * Math.cos(ang + 0.45), b.y - len * Math.sin(ang + 0.45));
+      g.closePath(); g.fill();
+    }
+  } else if (sh.tool === 'rect') {
+    g.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+  } else if (sh.tool === 'ellipse') {
+    g.beginPath();
+    g.ellipse((a.x + b.x) / 2, (a.y + b.y) / 2, Math.abs(b.x - a.x) / 2, Math.abs(b.y - a.y) / 2, 0, 0, Math.PI * 2);
+    g.stroke();
+  } else if (sh.tool === 'text') {
+    g.font = `bold ${sh.fs}px sans-serif`; g.textBaseline = 'middle';
+    g.lineWidth = sh.fs / 7;   // contrastrand voor leesbaarheid op elke achtergrond
+    g.strokeStyle = ['#ffffff', '#fdd835'].includes(sh.color) ? '#000' : '#fff';
+    g.strokeText(sh.text, sh.x, sh.y); g.fillText(sh.text, sh.x, sh.y);
+  }
+  g.restore();
+}
+
+function edPoint(ev) {
+  const c = $('#edCanvas'), r = c.getBoundingClientRect();
+  return {x: (ev.clientX - r.left) * c.width / r.width, y: (ev.clientY - r.top) * c.height / r.height};
+}
+
+const edCanvas = $('#edCanvas');
+edCanvas.addEventListener('pointerdown', ev => {
+  ev.preventDefault();
+  const p = edPoint(ev), w = ed.unit * ed.size;
+  if (ed.tool === 'text') {
+    const text = $('#edText').value.trim();
+    if (!text) { toast('Typ eerst de tekst bovenaan'); $('#edText').focus(); return; }
+    ed.shapes.push({tool: 'text', color: ed.color, text, x: p.x, y: p.y, fs: ed.unit * 9 * ed.size});
+    rebuildBase(); drawEditor();
+    return;
+  }
+  try { edCanvas.setPointerCapture(ev.pointerId); } catch (_) {}
+  ed.cur = ed.tool === 'pen' ? {tool: 'pen', color: ed.color, w, pts: [p]} : {tool: ed.tool, color: ed.color, w, a: p, b: p};
+  drawEditor();
+});
+edCanvas.addEventListener('pointermove', ev => {
+  if (!ed.cur) return;
+  const p = edPoint(ev);
+  if (ed.cur.tool === 'pen') ed.cur.pts.push(p); else ed.cur.b = p;
+  drawEditor();
+});
+const edEnd = () => {
+  if (!ed.cur) return;
+  const sh = ed.cur; ed.cur = null;
+  const moved = sh.tool === 'pen' ? sh.pts.length > 1 : Math.hypot(sh.b.x - sh.a.x, sh.b.y - sh.a.y) > ed.unit;
+  if (moved) { ed.shapes.push(sh); rebuildBase(); }
+  drawEditor();
+};
+edCanvas.addEventListener('pointerup', edEnd);
+edCanvas.addEventListener('pointercancel', edEnd);
+
+$('#edTools').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-tool]'); if (!b) return;
+  ed.tool = b.dataset.tool;
+  $$('#edTools .edb').forEach(x => x.classList.toggle('on', x === b));
+  $('#edText').hidden = ed.tool !== 'text';
+  if (ed.tool === 'text') $('#edText').focus();
+});
+$('#edColors').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-color]'); if (!b) return;
+  ed.color = b.dataset.color;
+  $$('#edColors .edc').forEach(x => x.classList.toggle('on', x === b));
+});
+$('#edSizes').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-size]'); if (!b) return;
+  ed.size = +b.dataset.size;
+  $$('#edSizes .edb').forEach(x => x.classList.toggle('on', x === b));
+});
+$('#edUndo').addEventListener('click', () => { ed.shapes.pop(); rebuildBase(); drawEditor(); });
+$('#edClear').addEventListener('click', () => {
+  if (ed.shapes.length && !confirm('Alles wat je getekend hebt wissen?')) return;
+  ed.shapes = []; rebuildBase(); drawEditor();
+});
+const edClose = () => $('#editor').close();
+$('#edCancel').addEventListener('click', () => {
+  if (ed.shapes.length && !confirm('Wijzigingen aan deze foto weggooien?')) return;
+  edClose();
+});
+$('#editor').addEventListener('cancel', ev => { if (ed.shapes.length && !confirm('Wijzigingen aan deze foto weggooien?')) ev.preventDefault(); });
+
+$('#edSave').addEventListener('click', async () => {
+  if (!ed.shapes.length) { edClose(); return; }
+  const btn = $('#edSave'); btn.disabled = true; btn.textContent = 'Opslaan…';
+  try {
+    drawEditor();
+    const blob = await new Promise(r => $('#edCanvas').toBlob(r, 'image/jpeg', 0.9));
+    const file = new File([blob], 'bewerkt.jpg', {type: 'image/jpeg'});
+    const {photo, pending: pend} = ed.target;
+    if (pend) {   // nog niet geüpload: alleen het bestand vervangen
+      URL.revokeObjectURL(pend.url);
+      pend.file = file; pend.url = URL.createObjectURL(file);
+    } else {
+      const fd = new FormData(); fd.append('foto', file, 'bewerkt.jpg');
+      Object.assign(photo, await api(`api/photos/${photo.id}/bewerkt`, {method: 'POST', body: fd}));
+      loadEntries();
+    }
+    edClose(); renderPhotos(); toast('Foto bewerkt');
+  } catch (e) { toast(e.message); }
+  finally { btn.disabled = false; btn.textContent = 'Opslaan'; }
+});
+
+$('#edRestore').addEventListener('click', async () => {
+  const photo = ed.target.photo;
+  if (!photo || !confirm('Alle tekeningen en tekst van deze foto verwijderen en het origineel terugzetten?')) return;
+  try {
+    Object.assign(photo, await api(`api/photos/${photo.id}/herstel`, {method: 'POST'}));
+    edClose(); renderPhotos(); loadEntries(); toast('Origineel hersteld');
+  } catch (e) { toast(e.message); }
+});
 
 // ---------------------------------------------------------------- lightbox
 function openLightbox(list, i) { lbList = list; lbIdx = i; showLb(); $('#lightbox').showModal(); }

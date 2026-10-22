@@ -32,7 +32,7 @@ from fpdf.enums import XPos, YPos
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 from PIL import Image, ImageOps
 
-VERSION = "0.10.0"
+VERSION = "0.11.0"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("logboek")
@@ -196,7 +196,8 @@ def init_db():
         for table, col, typ in (("entries", "duur_minuten", "INTEGER"),
                                 ("tasks", "entiteiten", "TEXT"),
                                 ("categories", "entiteiten", "TEXT"),
-                                ("photos", "omschrijving", "TEXT")):
+                                ("photos", "omschrijving", "TEXT"),
+                                ("photos", "origineel", "TEXT")):
             if col not in {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
         if conn.execute("SELECT COUNT(*) FROM categories").fetchone()[0] == 0:
@@ -461,30 +462,45 @@ def load_images(files, captions=()):
     return images
 
 
-def save_images(conn, entry_id, images):
+def write_photo(img):
+    """Foto + miniatuur wegschrijven onder een nieuwe naam; geeft (bestand, thumb)."""
     max_px = int(OPT.get("photo_max_px") or 0)
+    name = uuid.uuid4().hex
+    big = img.copy()
+    if max_px > 0:
+        big.thumbnail((max_px, max_px))
+    big.save(os.path.join(PHOTO_DIR, f"{name}.jpg"), "JPEG", quality=85, optimize=True)
+    write_thumb(img, f"{name}_t.jpg")
+    return f"{name}.jpg", f"{name}_t.jpg"
+
+
+def write_thumb(img, fn):
+    thumb = img.copy()
+    thumb.thumbnail((480, 480))
+    thumb.save(os.path.join(PHOTO_DIR, fn), "JPEG", quality=75)
+
+
+def save_images(conn, entry_id, images):
     for img, caption in images:
-        name = uuid.uuid4().hex
-        big = img.copy()
-        if max_px > 0:
-            big.thumbnail((max_px, max_px))
-        big.save(os.path.join(PHOTO_DIR, f"{name}.jpg"), "JPEG", quality=85, optimize=True)
-        thumb = img.copy()
-        thumb.thumbnail((480, 480))
-        thumb.save(os.path.join(PHOTO_DIR, f"{name}_t.jpg"), "JPEG", quality=75)
+        bestand, thumb = write_photo(img)
         conn.execute(
             "INSERT INTO photos (entry_id, bestand, thumb, omschrijving, created_at) VALUES (?,?,?,?,?)",
-            (entry_id, f"{name}.jpg", f"{name}_t.jpg", caption, now()),
+            (entry_id, bestand, thumb, caption, now()),
         )
 
 
-def remove_photo_files(rows):
-    for p in rows:
-        for fn in (p["bestand"], p["thumb"]):
+def remove_files(*names):
+    for fn in names:
+        if fn:
             try:
                 os.remove(os.path.join(PHOTO_DIR, fn))
             except FileNotFoundError:
                 pass
+
+
+def remove_photo_files(rows):
+    for p in rows:
+        remove_files(p["bestand"], p["thumb"], p["origineel"])
 
 
 def entries_with_photos(conn, where="", args=()):
@@ -500,7 +516,8 @@ def entries_with_photos(conn, where="", args=()):
         q = f"SELECT * FROM photos WHERE entry_id IN ({','.join('?' * len(ids))}) ORDER BY id"
         for p in conn.execute(q, ids):
             photos.setdefault(p["entry_id"], []).append(
-                {"id": p["id"], "bestand": p["bestand"], "thumb": p["thumb"], "omschrijving": p["omschrijving"]})
+                {"id": p["id"], "bestand": p["bestand"], "thumb": p["thumb"], "omschrijving": p["omschrijving"],
+                 "bewerkt": bool(p["origineel"])})
     values = {}
     if ids:
         q = f"SELECT * FROM entry_values WHERE entry_id IN ({','.join('?' * len(ids))}) ORDER BY id"
@@ -686,6 +703,53 @@ def api_entry_delete(eid):
     remove_photo_files(photos)
     changed()
     return jsonify(ok=True)
+
+
+def photo_json(row):
+    return {"id": row["id"], "bestand": row["bestand"], "thumb": row["thumb"],
+            "omschrijving": row["omschrijving"], "bewerkt": bool(row["origineel"])}
+
+
+@app.post("/api/photos/<int:pid>/bewerkt")
+def api_photo_edited(pid):
+    """Bewerkte versie (met tekst/tekening) opslaan; het origineel blijft bewaard voor herstellen."""
+    images = load_images(request.files.getlist("foto"))
+    if not images:
+        abort(400, "Geen foto ontvangen")
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM photos WHERE id = ?", (pid,)).fetchone()
+        if not row:
+            abort(404, "Foto niet gevonden")
+        bestand, thumb = write_photo(images[0][0])
+        if row["origineel"]:   # al eerder bewerkt: vorige bewerking weg, origineel blijft
+            remove_files(row["bestand"], row["thumb"])
+            origineel = row["origineel"]
+        else:                  # eerste bewerking: huidige foto wordt het origineel
+            remove_files(row["thumb"])
+            origineel = row["bestand"]
+        conn.execute("UPDATE photos SET bestand = ?, thumb = ?, origineel = ? WHERE id = ?",
+                     (bestand, thumb, origineel, pid))
+        row = conn.execute("SELECT * FROM photos WHERE id = ?", (pid,)).fetchone()
+    changed()
+    return jsonify(photo_json(row))
+
+
+@app.post("/api/photos/<int:pid>/herstel")
+def api_photo_restore(pid):
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM photos WHERE id = ?", (pid,)).fetchone()
+        if not row:
+            abort(404, "Foto niet gevonden")
+        if not row["origineel"]:
+            abort(400, "Deze foto is niet bewerkt")
+        thumb = uuid.uuid4().hex + "_t.jpg"
+        with Image.open(os.path.join(PHOTO_DIR, row["origineel"])) as img:
+            write_thumb(img.convert("RGB"), thumb)
+        remove_files(row["bestand"], row["thumb"])
+        conn.execute("UPDATE photos SET bestand = origineel, thumb = ?, origineel = NULL WHERE id = ?", (thumb, pid))
+        row = conn.execute("SELECT * FROM photos WHERE id = ?", (pid,)).fetchone()
+    changed()
+    return jsonify(photo_json(row))
 
 
 @app.delete("/api/photos/<int:pid>")
