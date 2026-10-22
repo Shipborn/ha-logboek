@@ -419,7 +419,7 @@ function renderEntries() {
         ${e.categorie ? `<span class="chip">${esc(e.categorie)}</span>` : ''}
         ${e.taak_naam ? `<span class="chip">⟳ ${esc(e.taak_naam)}</span>` : ''}
         ${e.duur_minuten != null ? `<span title="Bestede tijd">⏱ ${fmtDur(e.duur_minuten)}</span>` : ''}
-        ${e.created_at ? `<span class="stamp" title="Opgeslagen">opgeslagen ${fmtStamp(e.created_at)}</span>` : ''}
+        ${stampHtml(e)}
         <a class="pdfbtn${e.created_at ? '' : ' end'}" href="api/pdf/entry/${e.id}" download title="PDF van deze logregel">PDF</a>
       </div>
       <h3>${esc(e.titel)}</h3>
@@ -475,7 +475,9 @@ function openEntry(entry = null, preset = {}) {
   const st = $('#entryStamp');
   st.hidden = !entry?.created_at;
   if (entry?.created_at) st.textContent = `Opgeslagen op ${fmtStamp(entry.created_at)}` +
-    (entry.updated_at && entry.updated_at !== entry.created_at ? ` · laatst gewijzigd ${fmtStamp(entry.updated_at)}` : '');
+    (entry.ingevoerd_door ? ` door ${entry.ingevoerd_door}` : '') +
+    (entry.updated_at && entry.updated_at !== entry.created_at ? ` · laatst gewijzigd ${fmtStamp(entry.updated_at)}` +
+      (entry.gewijzigd_door ? ` door ${entry.gewijzigd_door}` : '') : '');
   f.omschrijving.value = v.omschrijving || '';
   renderPhotos();
   $('#entryVals').hidden = true;
@@ -712,6 +714,7 @@ const fmtVal = v => {
   const w = v.waarde != null && v.waarde !== '' && !isNaN(n) ? fmtNum(n, 2) : esc(v.waarde ?? '—');
   return `<span class="val" title="${esc(v.entity_id)}">${esc(v.naam)}: <b>${w}${v.eenheid ? ' ' + esc(v.eenheid) : ''}</b></span>`;
 };
+const stampHtml = e => e.created_at ? `<span class="stamp" title="Opgeslagen">opgeslagen ${fmtStamp(e.created_at)}${e.ingevoerd_door ? ' door ' + esc(e.ingevoerd_door) : ''}</span>` : '';
 const valsHtml = list => list?.length ? `<div class="vals">${list.map(fmtVal).join('')}</div>` : '';
 
 let HA_ENTS = null;
@@ -776,7 +779,7 @@ function tlItem(e, top) {
         <div class="meta"><span>${fmtDate(e.datum)}</span>
           ${e.uitgevoerd_door ? `<span>${esc(e.uitgevoerd_door)}</span>` : ''}
           ${e.duur_minuten != null ? `<span title="Bestede tijd">⏱ ${fmtDur(e.duur_minuten)}</span>` : ''}
-          ${e.created_at ? `<span class="stamp" title="Opgeslagen">opgeslagen ${fmtStamp(e.created_at)}</span>` : ''}</div>
+          ${stampHtml(e)}</div>
         <h4>${esc(e.titel)}</h4>
         ${e.omschrijving ? `<p class="full-desc">${esc(e.omschrijving)}</p>` : ''}
         ${valsHtml(e.waarden)}

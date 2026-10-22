@@ -32,7 +32,7 @@ from fpdf.enums import XPos, YPos
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 from PIL import Image, ImageOps
 
-VERSION = "0.12.2"
+VERSION = "0.13.0"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("logboek")
@@ -198,7 +198,9 @@ def init_db():
                                 ("tasks", "entiteiten", "TEXT"),
                                 ("categories", "entiteiten", "TEXT"),
                                 ("photos", "omschrijving", "TEXT"),
-                                ("photos", "origineel", "TEXT")):
+                                ("photos", "origineel", "TEXT"),
+                                ("entries", "ingevoerd_door", "TEXT"),
+                                ("entries", "gewijzigd_door", "TEXT")):
             if col not in {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
         if conn.execute("SELECT COUNT(*) FROM categories").fetchone()[0] == 0:
@@ -401,6 +403,15 @@ def minutes(value):
 
 def fmt_minutes(m):
     return "" if m is None else f"{m // 60}:{m % 60:02d}"
+
+
+def current_user():
+    """Naam van de ingelogde HA-gebruiker; de Supervisor zet deze headers bij ingress."""
+    for h in ("X-Remote-User-Display-Name", "X-Remote-User-Name"):
+        v = text(request.headers.get(h))
+        if v:
+            return v
+    return None
 
 
 def entry_from_form(form):
@@ -692,9 +703,11 @@ def api_entry_create():
     with get_db() as conn:
         cur = conn.execute(
             "INSERT INTO entries (datum, categorie, titel, omschrijving, motoruren, kosten, "
-            "uitgevoerd_door, duur_minuten, task_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "uitgevoerd_door, duur_minuten, task_id, created_at, updated_at, ingevoerd_door) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (data["datum"], data["categorie"], data["titel"], data["omschrijving"], data["motoruren"],
-             data["kosten"], data["uitgevoerd_door"], data["duur_minuten"], data["task_id"], now(), now()),
+             data["kosten"], data["uitgevoerd_door"], data["duur_minuten"], data["task_id"], now(), now(),
+             current_user()),
         )
         eid = cur.lastrowid
         save_images(conn, eid, images)
@@ -715,9 +728,10 @@ def api_entry_update(eid):
                 data[k] = old[k]
         cur = conn.execute(
             "UPDATE entries SET datum=?, categorie=?, titel=?, omschrijving=?, motoruren=?, kosten=?, "
-            "uitgevoerd_door=?, duur_minuten=?, task_id=?, updated_at=? WHERE id=?",
+            "uitgevoerd_door=?, duur_minuten=?, task_id=?, updated_at=?, gewijzigd_door=? WHERE id=?",
             (data["datum"], data["categorie"], data["titel"], data["omschrijving"], data["motoruren"],
-             data["kosten"], data["uitgevoerd_door"], data["duur_minuten"], data["task_id"], now(), eid),
+             data["kosten"], data["uitgevoerd_door"], data["duur_minuten"], data["task_id"], now(),
+             current_user(), eid),
         )
         if cur.rowcount == 0:
             abort(404, "Logregel niet gevonden")
@@ -959,13 +973,13 @@ def api_export():
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
     w.writerow(["Datum", "Categorie", "Titel", "Taak", "Omschrijving", "Motoruren",
-                "Uitgevoerd door", "Bestede tijd (u:mm)", "Meetwaarden", "Opgeslagen", "Foto's"])
+                "Uitgevoerd door", "Bestede tijd (u:mm)", "Meetwaarden", "Opgeslagen", "Ingevoerd door", "Foto's"])
     for r in rows:
         w.writerow([
             r["datum"], r["categorie"] or "", r["titel"], r["taak_naam"] or "", r["omschrijving"] or "",
             "" if r["motoruren"] is None else str(r["motoruren"]).replace(".", ","),
             r["uitgevoerd_door"] or "", fmt_minutes(r["duur_minuten"]), fmt_values(r["waarden"]),
-            r["created_at"] or "",
+            r["created_at"] or "", r["ingevoerd_door"] or "",
             ", ".join(p["bestand"] + (f' ({p["omschrijving"]})' if p["omschrijving"] else "") for p in r["fotos"]),
         ])
     return Response(
@@ -1108,7 +1122,8 @@ class LogPdf(FPDF):
                 f"Taak: {e['taak_naam']}" if e["taak_naam"] else None,
                 f"Door: {e['uitgevoerd_door']}" if e["uitgevoerd_door"] else None,
                 f"Bestede tijd: {fmt_duur(e['duur_minuten'])}" if e["duur_minuten"] is not None else None,
-                f"Opgeslagen {nl_stamp(e['created_at'])}" if e["created_at"] else None]
+                f"Opgeslagen {nl_stamp(e['created_at'])}" + (f" door {e['ingevoerd_door']}" if e["ingevoerd_door"] else "")
+                if e["created_at"] else None]
         self.line_text(" · ".join(m for m in meta if m), 9, color=MUTED)
         if e["omschrijving"]:
             self.ln(1.5)
@@ -1232,7 +1247,8 @@ def build_report(entries, subject):
                             f"Door: {e['uitgevoerd_door']}" if e["uitgevoerd_door"] else None,
                             f"Tijd: {fmt_duur(e['duur_minuten'])}" if e["duur_minuten"] is not None else None) if x]
         datum = date.fromisoformat(e["datum"]).strftime("%d-%m-%Y")
-        lines += [f"{e['titel']}", f"  Datum {datum}, opgeslagen {stamp}"]
+        door = f" door {e['ingevoerd_door']}" if e["ingevoerd_door"] else ""
+        lines += [f"{e['titel']}", f"  Datum {datum}, opgeslagen {stamp}{door}"]
         lines += [f"  {' · '.join(meta)}"] if meta else []
         lines += [f"  {e['omschrijving']}"] if e["omschrijving"] else []
         lines += [f"  Meetwaarden: {fmt_values(e['waarden'])}"] if e["waarden"] else []
@@ -1257,7 +1273,7 @@ def build_report(entries, subject):
             for v in e["waarden"])
         blocks.append(f"""
 <div style="border:1px solid #e2e5ea;border-radius:10px;padding:12px 14px;margin:0 0 12px">
-  <div style="color:#687180;font-size:13px">{datum} · opgeslagen {html.escape(stamp)}
+  <div style="color:#687180;font-size:13px">{datum} · opgeslagen {html.escape(stamp + door)}
     {''.join(' · ' + html.escape(m) for m in meta)}</div>
   <div style="font-size:16px;font-weight:600;margin:4px 0">{html.escape(e['titel'])}</div>
   {f'<div style="white-space:pre-line;margin:0 0 6px">{html.escape(e["omschrijving"])}</div>' if e['omschrijving'] else ''}
