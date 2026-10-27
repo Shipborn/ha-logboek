@@ -20,8 +20,9 @@
     {% for id, naam, tabs in modules %}<button class="mod" data-mod="{{ id }}">{{ naam }}<span class="count" hidden></span></button>
     {% endfor %}
   </nav>
-  {% for id, naam, tabs in modules if tabs|length > 1 %}
-  <nav class="tabs" data-mod="{{ id }}" hidden>
+  {#- ook bij één tabblad een (verborgen) nav, zodat de navigatie weet welk tabblad bij de module hoort -#}
+  {% for id, naam, tabs in modules %}
+  <nav class="tabs" data-mod="{{ id }}"{% if tabs|length == 1 %} data-enkel{% endif %} hidden>
     {% for tab, tnaam, _ in tabs %}<button class="tab" data-tab="{{ tab }}">{{ tnaam }}<span class="count" hidden></span></button>
     {% endfor %}
   </nav>
@@ -29,8 +30,8 @@
 </header>
 
 <main>
-{% for tab, naam, bestand in tabs %}
-{% include bestand + ".html" %}
+{% for f in html %}
+{% include f %}
 {% endfor %}
 </main>
 

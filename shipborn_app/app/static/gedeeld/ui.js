@@ -21,6 +21,35 @@ const fmtVal = v => {
 };
 const valsHtml = list => als(list?.length, `<div class="vals">${(list || []).map(fmtVal).join('')}</div>`);
 
+// Eenvoudige opmaak voor uitleg (stappenplan): **vet**, *cursief*, regels met "- " of "1. " worden een
+// lijst, een lege regel begint een nieuwe alinea. Alles wordt eerst ge-escaped.
+function mdHtml(tekst) {
+  const inline = s => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\*(.+?)\*/g, '<i>$1</i>');
+  const out = [];
+  let lijst = null, alinea = [];
+  const sluit = () => {
+    if (alinea.length) out.push(`<p>${alinea.join('<br>')}</p>`);
+    if (lijst) out.push(`<${lijst.tag}>${lijst.items.join('')}</${lijst.tag}>`);
+    alinea = []; lijst = null;
+  };
+  for (const regel of String(tekst || '').split('\n')) {
+    const m = regel.match(/^\s*(?:([-*•])|(\d+)[.)])\s+(.*)$/);
+    if (m) {
+      const tag = m[1] ? 'ul' : 'ol';
+      if (alinea.length || (lijst && lijst.tag !== tag)) sluit();
+      lijst ??= {tag, items: []};
+      lijst.items.push(`<li>${inline(m[3])}</li>`);
+    } else if (!regel.trim()) {
+      sluit();
+    } else {
+      if (lijst) sluit();
+      alinea.push(inline(regel));
+    }
+  }
+  sluit();
+  return out.join('');
+}
+
 // ---------------------------------------------------------------- tijdlijn van logregels (taakgeschiedenis, categorie)
 function tlItem(e, top) {
   return `<li data-id="${e.id}">

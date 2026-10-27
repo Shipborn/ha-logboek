@@ -7,10 +7,23 @@
 <div class="dbody">
   <label class="full">Naam<input name="naam" required placeholder="Bijv. Motorolie + filter"></label>
   <label class="full">Categorie<select name="categorie" data-categorieen="—"></select></label>
-  <label>Elke … dagen<input name="interval_dagen" inputmode="numeric" placeholder="bijv. 365"></label>
-  <label>Elke … motoruren<input name="interval_uren" inputmode="decimal" placeholder="bijv. 100"></label>
-  <p class="hint full">Vul één of beide in. Bij beide geldt wat het eerst komt.</p>
+  <div class="full">
+    <label>Onderhoud nodig na <span class="hint">(vul één of meer in; wat het eerst bereikt is telt)</span></label>
+    <div class="tellers">
+      <label>Dagen<input name="interval_dagen" inputmode="numeric" placeholder="bijv. 365"></label>
+      <label>Uren hoofdmotor<input name="interval_uren" inputmode="decimal" placeholder="bijv. 250"></label>
+      <label>Uren generator<input name="interval_generator" inputmode="decimal" placeholder="bijv. 500"></label>
+    </div>
+    <p class="hint" id="tellerHint" hidden></p>
+  </div>
   <label class="full">Notitie<textarea name="notitie" placeholder="Onderdeelnummers, olietype, inhoud…"></textarea></label>
+  <div class="full">
+    <label>Stappenplan <span class="hint">(optioneel — met een stappenplan loop je bij Uitvoeren stap voor stap door het onderhoud)</span></label>
+    <div class="stapsam">
+      <span id="taskStappen"></span>
+      <button type="button" class="btn" id="taskStappenEdit">Stappenplan bewerken</button>
+    </div>
+  </div>
   <div class="full">
     <label>Meetwaarden uit Home Assistant <span class="hint">(bij elke nieuwe logregel van deze taak automatisch opgeslagen)</span></label>
     <div class="entpick" id="taskEnts"></div>

@@ -1,22 +1,30 @@
 # Status
 
-**Versie 0.15.0** (2026-10-26), werkmap `261026`. Werk gepauzeerd.
+**Versie 0.16.0**, werkmap `261027`. Op GitHub (`Shipborn/ha-logboek`, main, 2026-10-27), zonder de map `voorbeeld/`.
 
 ## Gedaan
-- 0.14.0: omgezet naar Shipborn App. Hoofdmenu met de modules Logboek (subtabbladen Logboek, Taken, Categorieën), Onderhoud, Reizen en Instellingen (logo). Logboek werkt zoals 0.13.1. Onderhoud en Reizen tonen "in ontwikkeling".
-- 0.15.0: frontend opgesplitst in bestanden per tabblad (template + js + css) met een gedeelde basis. Flask/Jinja stelt de pagina samen.
-- Lokaal getest met de echte backend: taak aanmaken, logregel met foto, foto bewerken, lightbox, geschiedenis, categorie hernoemen, PDF, herladen op hash.
+- 0.14.0: omgezet naar Shipborn App met modules.
+- 0.15.0: frontend per tabblad in losse bestanden (template + js + css) met gedeelde basis; op GitHub.
+- 0.16.0:
+  - Taken en Categorieën verplaatst van Logboek naar de module **Onderhoud**; Logboek heeft alleen nog de logregels.
+  - **Instellingen › Urentellers**: HA-sensor voor hoofdmotor en generator (in de database, niet meer als app-optie). Bestaande `engine_hours_entity` wordt bij de eerste start overgenomen.
+  - Taken met meerdere tellers: dagen, uren hoofdmotor, uren generator; wat het eerst bereikt is telt. Logregels slaan beide urenstanden op. MQTT, PDF en CSV bijgewerkt.
+  - **Stappenplan** per taak (editor): stappen toevoegen/verplaatsen/verwijderen, uitleg met eenvoudige opmaak, uitlegafbeeldingen, HA-entiteiten (tonen, bedienen, vereiste status), foto's vragen/verplicht met minimum.
+  - **Uitvoeren** van een stappenplan: stap voor stap, Volgende geblokkeerd tot voorwaarden en verplichte foto's in orde zijn, opmerkingen per stap; Afronden maakt automatisch een logregel met foto's, opmerkingen en bestede tijd.
+- Lokaal getest met nep-HA (`tools/nep_ha.py`) op een kopie van de 0.15-testdatabase: migratie, urentellers instellen, taak met stappenplan maken (incl. afbeelding), uitvoeren met blokkade, bedienen, verplichte foto's, afronden, status/dueText daarna, PDF en CSV, weigering van bedienen buiten een stappenplan.
 
 ## Niet gedaan / niet getest
-- **Niet op GitHub.** `Shipborn/ha-logboek` (main) staat nog op 0.13.1, zonder lokale wijzigingen. Pushen lukte niet: er waren geen inloggegevens op deze computer. De procedure staat in `../CLAUDE.md` onder "Publiceren naar GitHub".
-- Niet getest in Home Assistant (ingress, update van 0.13.1 met behoud van gegevens) en niet op Android (camera in de HA-app).
+- Niet getest in Home Assistant zelf (ingress, echte kleppen/schakelaars, update vanaf 0.13.1/0.15.0) en niet in de HA Android-app (camera in de pagina bij Uitvoeren en bij uitlegafbeeldingen).
+- Een lopende uitvoering wordt niet bewaard: pagina sluiten = foto's en voortgang kwijt.
+- Uitlegafbeeldingen die geüpload zijn in een stappenplan dat daarna niet wordt opgeslagen, blijven als losse bestanden in `/share/logboek/photos` staan.
+- Het stappenplan staat niet in de taak-PDF.
+- `voorbeeld/Wierpot Aft schoonmaken.yaml` (voorbeeld van de gebruiker) staat alleen in de werkmap; bij publiceren naar GitHub weglaten.
 
 ## Volgende stappen
-1. Nieuwste datummap naar GitHub pushen (zie `../CLAUDE.md`).
-2. In HA bijwerken: `/addons/logboek` vervangen door `/addons/shipborn_app` (of de repository verversen) en controleren dat het als update binnenkomt met behoud van logregels en foto's.
-3. Testen in de HA Android-app: foto maken, uit galerij, foto bewerken.
-4. Open vragen aan de gebruiker:
-   - Verhuist Taken naar de module Onderhoud, of wordt Onderhoud iets anders?
-   - Wat moet Reizen bevatten (bijv. tochten met datum, route, bemanning, afstand, motoruren)?
-   - GitHub-repository hernoemen? (URL in `repository.yaml`, `shipborn_app/config.yaml`, README)
-   - Git gebruiken in plaats van (of naast) de datummappen?
+1. In HA bijwerken naar 0.16.0; controleren dat de urenteller hoofdmotor is overgenomen en de taken kloppen.
+2. Het voorbeeld (wierpot aft) als stappenplan invoeren en met de echte entiteiten testen, ook op Android.
+3. Open vragen aan de gebruiker:
+   - Lopende uitvoering bewaren (op de server) zodat je later verder kunt?
+   - Stappenplan in de taak-PDF (als werkinstructie)?
+   - Wat moet Reizen bevatten?
+   - GitHub-repository hernoemen? Git gebruiken in plaats van (of naast) de datummappen?

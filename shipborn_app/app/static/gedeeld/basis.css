@@ -27,7 +27,7 @@ p.hint{margin:0}
 header{position:sticky;top:0;z-index:5;background:var(--bg);padding:14px 16px 0;border-bottom:1px solid var(--line)}
 .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 #logo{height:36px;max-width:140px;object-fit:contain}
-h1{font-size:20px;margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+h1{font-size:20px;margin:0;flex:1;min-width:min(100%,180px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pill{font-size:13px;padding:3px 10px;border-radius:99px;background:var(--chip);color:var(--muted);white-space:nowrap}
 .mods{display:flex;gap:6px;margin:10px 0;overflow-x:auto;scrollbar-width:none}
 .mod{border:1px solid var(--line);background:var(--card);border-radius:99px;padding:6px 14px;color:var(--muted);cursor:pointer;font-weight:600;white-space:nowrap}

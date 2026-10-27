@@ -16,7 +16,7 @@ import sqlite3
 import threading
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import date, datetime, timedelta, timezone
 from datetime import time as dt_time
 
@@ -32,7 +32,7 @@ from fpdf.enums import XPos, YPos
 from flask import Flask, Response, abort, jsonify, render_template, request, send_from_directory
 from PIL import Image, ImageOps
 
-VERSION = "0.15.0"
+VERSION = "0.16.0"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("logboek")
@@ -200,9 +200,15 @@ def init_db():
                                 ("photos", "omschrijving", "TEXT"),
                                 ("photos", "origineel", "TEXT"),
                                 ("entries", "ingevoerd_door", "TEXT"),
-                                ("entries", "gewijzigd_door", "TEXT")):
+                                ("entries", "gewijzigd_door", "TEXT"),
+                                ("entries", "generator_uren", "REAL"),
+                                ("tasks", "interval_generator", "REAL"),
+                                ("tasks", "stappen", "TEXT")):
             if col not in {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+        # urenteller hoofdmotor stond vóór 0.16.0 in de app-optie engine_hours_entity
+        if meta_get(conn, "uren_hoofdmotor") is None and text(OPT.get("engine_hours_entity")):
+            meta_set(conn, "uren_hoofdmotor", text(OPT.get("engine_hours_entity")))
         if conn.execute("SELECT COUNT(*) FROM categories").fetchone()[0] == 0:
             # eerste start: vullen met de categorieën uit de instellingen + alles wat al gebruikt is
             names = list(OPT.get("categories") or [])
@@ -243,9 +249,21 @@ def ha_headers():
     return {"Authorization": f"Bearer {SUPERVISOR_TOKEN}"}
 
 
-def engine_hours():
-    """Huidige motoruren uit de ingestelde HA-entiteit, of None."""
-    entity = (OPT.get("engine_hours_entity") or "").strip()
+# Urentellers: (id, naam, kolom in entries, intervalkolom in tasks, meta-sleutel met de HA-entiteit).
+# Bij elke nieuwe logregel wordt de stand van elke teller vastgelegd; een taak kan per teller een interval hebben.
+TELLERS = [
+    ("hoofdmotor", "Hoofdmotor", "motoruren", "interval_uren", "uren_hoofdmotor"),
+    ("generator", "Generator", "generator_uren", "interval_generator", "uren_generator"),
+]
+
+
+def teller_entiteiten(conn=None):
+    """HA-entiteit per urenteller (Instellingen in de app), bijv. {"hoofdmotor": "sensor.x", "generator": None}."""
+    with (nullcontext(conn) if conn else get_db()) as c:
+        return {tid: text(meta_get(c, key)) for tid, _, _, _, key in TELLERS}
+
+
+def ha_number(entity):
     if not entity or not SUPERVISOR_TOKEN:
         return None
     try:
@@ -253,8 +271,14 @@ def engine_hours():
         r.raise_for_status()
         return round(float(r.json()["state"]), 1)
     except Exception as e:  # noqa: BLE001
-        log.debug("Motoruren niet beschikbaar: %s", e)
+        log.debug("Uren van %s niet beschikbaar: %s", entity, e)
         return None
+
+
+def engine_hours():
+    """Actuele stand per urenteller, bijv. {"hoofdmotor": 1234.5, "generator": None}."""
+    ents = teller_entiteiten()
+    return {tid: ha_number(ents[tid]) for tid, *_ in TELLERS}
 
 
 _TZ = None
@@ -428,9 +452,10 @@ def entry_from_form(form):
         "datum": datum,
         "categorie": text(form.get("categorie")),
         "titel": titel,
-        "omschrijving": text(form.get("omschrijving")),
+        "omschrijving": text((form.get("omschrijving") or "").replace("\r\n", "\n")),   # FormData stuurt CRLF
         # niet meer in het formulier: motoruren komen uit HA, kosten vervallen (oude waarden blijven)
         "motoruren": num(form.get("motoruren")) if "motoruren" in form else None,
+        "generator_uren": None,
         "kosten": num(form.get("kosten")) if "kosten" in form else None,
         "uitgevoerd_door": text(form.get("uitgevoerd_door")),
         "duur_minuten": minutes(form.get("duur")),
@@ -444,15 +469,65 @@ def task_from_json(d):
         abort(400, "Naam is verplicht")
     dagen = num(d.get("interval_dagen"))
     uren = num(d.get("interval_uren"))
+    gen = num(d.get("interval_generator"))
     return {
         "naam": naam,
         "categorie": text(d.get("categorie")),
         "interval_dagen": int(dagen) if dagen else None,
         "interval_uren": uren if uren else None,
+        "interval_generator": gen if gen else None,
         "notitie": text(d.get("notitie")),
         "actief": 1 if d.get("actief", True) else 0,
         "entiteiten": json.dumps(entity_list(d.get("entiteiten"))),
+        "stappen": json.dumps(stappen_from_json(d.get("stappen")), ensure_ascii=False),
     }
+
+
+# --------------------------------------------------------------------------- stappenplan
+# tasks.stappen: JSON-lijst van stappen {titel, tekst, afbeeldingen: [{bestand, thumb}],
+# entiteiten: [{entity_id, naam, bedienen, vereist}], fotos: geen|vragen|verplicht, min_fotos, foto_vraag}.
+# vereist = status die de entiteit moet hebben voordat de volgende stap kan (bijv. off, closed).
+FOTO_EISEN = ("geen", "vragen", "verplicht")
+FOTO_NAAM_RE = re.compile(r"^[0-9a-f]{32}(_t)?\.jpg$")
+
+
+def stappen_from_json(value):
+    out = []
+    for i, st in enumerate(value or [], 1):
+        titel = text(st.get("titel"))
+        if not titel:
+            abort(400, f"Stap {i} heeft geen titel")
+        ents = []
+        for e in st.get("entiteiten") or []:
+            eid = str(e.get("entity_id") or "").strip().lower()
+            if not eid:
+                continue
+            if not ENTITY_RE.match(eid):
+                abort(400, f"Ongeldige entiteit in stap {i}: {eid}")
+            ents.append({"entity_id": eid, "naam": text(e.get("naam")), "bedienen": bool(e.get("bedienen")),
+                         "vereist": text(e.get("vereist"))})
+        imgs = [{"bestand": a["bestand"], "thumb": a["thumb"]} for a in st.get("afbeeldingen") or []
+                if FOTO_NAAM_RE.match(str(a.get("bestand"))) and FOTO_NAAM_RE.match(str(a.get("thumb")))]
+        fotos = st.get("fotos") if st.get("fotos") in FOTO_EISEN else "geen"
+        out.append({"titel": titel, "tekst": text(st.get("tekst")), "afbeeldingen": imgs, "entiteiten": ents,
+                    "fotos": fotos, "min_fotos": max(1, int(num(st.get("min_fotos")) or 1)),
+                    "foto_vraag": text(st.get("foto_vraag"))})
+    return out
+
+
+def stap_bestanden(stappen_json):
+    """Bestandsnamen van alle uitlegafbeeldingen in een stappenplan (JSON-tekst)."""
+    return {f for st in json.loads(stappen_json or "[]") for a in st.get("afbeeldingen", [])
+            for f in (a["bestand"], a["thumb"])}
+
+
+def bedienbare_entiteiten(conn):
+    """Alleen entiteiten die in een stappenplan op 'bedienen' staan mogen vanuit de app geschakeld worden."""
+    ids = set()
+    for (st,) in conn.execute("SELECT stappen FROM tasks WHERE stappen IS NOT NULL"):
+        for stap in json.loads(st or "[]"):
+            ids.update(e["entity_id"] for e in stap.get("entiteiten", []) if e.get("bedienen"))
+    return ids
 
 
 def load_images(files, captions=()):
@@ -540,42 +615,47 @@ def entries_with_photos(conn, where="", args=()):
 
 
 def task_status(conn, t, hours_now, today):
+    """Status van een taak: wat het eerst komt van het interval in dagen en de intervallen per urenteller."""
     s = dict(t)
     s["entiteiten"] = entity_list(t["entiteiten"])
+    s["stappen"] = json.loads(t["stappen"] or "[]")
     last = conn.execute(
-        "SELECT datum, motoruren FROM entries WHERE task_id = ? ORDER BY datum DESC, id DESC LIMIT 1",
-        (t["id"],),
-    ).fetchone()
-    last_hours = conn.execute(
-        "SELECT motoruren FROM entries WHERE task_id = ? AND motoruren IS NOT NULL "
-        "ORDER BY datum DESC, id DESC LIMIT 1",
-        (t["id"],),
-    ).fetchone()
-    s.update(laatst_datum=last["datum"] if last else None,
-             laatst_uren=last_hours["motoruren"] if last_hours else None,
-             volgende_datum=None, dagen_rest=None, volgende_uren=None, uren_rest=None,
-             motoruren_nu=hours_now)
-
+        "SELECT datum FROM entries WHERE task_id = ? ORDER BY datum DESC, id DESC LIMIT 1", (t["id"],)).fetchone()
+    s.update(laatst_datum=last["datum"] if last else None, volgende_datum=None, dagen_rest=None, tellers=[])
     if t["interval_dagen"] and last:
         volgende = date.fromisoformat(last["datum"]) + timedelta(days=t["interval_dagen"])
         s["volgende_datum"] = volgende.isoformat()
         s["dagen_rest"] = (volgende - today).days
-    if t["interval_uren"] and last_hours:
-        s["volgende_uren"] = round(last_hours["motoruren"] + t["interval_uren"], 1)
-        if hours_now is not None:
-            s["uren_rest"] = round(s["volgende_uren"] - hours_now, 1)
+    for tid, naam, kolom, ikolom, _ in TELLERS:
+        if not t[ikolom]:
+            continue
+        row = conn.execute(f"SELECT {kolom} AS u FROM entries WHERE task_id = ? AND {kolom} IS NOT NULL "
+                           "ORDER BY datum DESC, id DESC LIMIT 1", (t["id"],)).fetchone()
+        c = {"id": tid, "naam": naam, "kolom": kolom, "interval": t[ikolom], "laatst": row["u"] if row else None,
+             "volgende": None, "rest": None, "nu": (hours_now or {}).get(tid)}
+        if row:
+            c["volgende"] = round(row["u"] + t[ikolom], 1)
+            if c["nu"] is not None:
+                c["rest"] = round(c["volgende"] - c["nu"], 1)
+        s["tellers"].append(c)
+    # losse velden per teller (MQTT-attributen): laatst_uren/volgende_uren/uren_rest = hoofdmotor
+    per = {c["id"]: c for c in s["tellers"]}
+    for tid, prefix in (("hoofdmotor", ""), ("generator", "generator_")):
+        c = per.get(tid, {})
+        s.update({f"{prefix}laatst_uren": c.get("laatst"), f"{prefix}volgende_uren": c.get("volgende"),
+                  f"{prefix}uren_rest": c.get("rest")})
 
-    late = (s["dagen_rest"] is not None and s["dagen_rest"] < 0) or \
-           (s["uren_rest"] is not None and s["uren_rest"] < 0)
+    rest = [c["rest"] for c in s["tellers"] if c["rest"] is not None]
+    late = (s["dagen_rest"] is not None and s["dagen_rest"] < 0) or any(r < 0 for r in rest)
     soon = (s["dagen_rest"] is not None and s["dagen_rest"] <= int(OPT["warn_days"])) or \
-           (s["uren_rest"] is not None and s["uren_rest"] <= float(OPT["warn_hours"]))
+        any(r <= float(OPT["warn_hours"]) for r in rest)
     if not t["actief"]:
         status = "inactief"
     elif late:
         status = "achterstallig"
     elif soon:
         status = "binnenkort"
-    elif s["dagen_rest"] is None and s["uren_rest"] is None:
+    elif s["dagen_rest"] is None and not rest:
         status = "onbekend"
     else:
         status = "ok"
@@ -609,26 +689,26 @@ def json_error(e):
     return jsonify(error=getattr(e, "description", str(e))), e.code
 
 
-# Hoofdmenu: module -> tabbladen (id, naam, bestand). Bij een tabblad horen templates/<bestand>.html
-# (weergave + dialogen) en, als ze bestaan, static/<bestand>.css en static/<bestand>.js.
+# Hoofdmenu: module -> tabbladen (id, naam, bestanden). Bij elk bestand horen templates/<bestand>.html
+# (weergave en/of dialogen) en, als ze bestaan, static/<bestand>.css en static/<bestand>.js.
+# Het eerste bestand van een tabblad bevat zijn <section id="view-<id>">.
 MODULES = [
-    ("logboek", "Logboek", [("log", "Logboek", "logboek/logregels"),
-                            ("tasks", "Taken", "logboek/taken"),
-                            ("cats", "Categorieën", "logboek/categorieen")]),
-    ("onderhoud", "Onderhoud", [("onderhoud", "Onderhoud", "onderhoud/onderhoud")]),
-    ("reizen", "Reizen", [("reizen", "Reizen", "reizen/reizen")]),
-    ("settings", "Instellingen", [("settings", "Instellingen", "instellingen/instellingen")]),
+    ("logboek", "Logboek", [("log", "Logboek", ["logboek/logregels"])]),
+    ("onderhoud", "Onderhoud", [("tasks", "Taken", ["onderhoud/taken", "onderhoud/stappenplan", "onderhoud/uitvoeren"]),
+                                ("cats", "Categorieën", ["onderhoud/categorieen"])]),
+    ("reizen", "Reizen", [("reizen", "Reizen", ["reizen/reizen"])]),
+    ("settings", "Instellingen", [("settings", "Instellingen", ["instellingen/instellingen"])]),
 ]
 
 
 @app.get("/")
 def index():
-    tabs = [t for _, _, ts in MODULES for t in ts]
+    bestanden = [b for _, _, ts in MODULES for _, _, bs in ts for b in bs]
     bestaat = lambda f: os.path.exists(os.path.join(STATIC_DIR, f))  # noqa: E731
     resp = Response(render_template(
-        "index.html", versie=VERSION, modules=MODULES, tabs=tabs,
-        css=[b + ".css" for _, _, b in tabs if bestaat(b + ".css")],
-        js=[b + ".js" for _, _, b in tabs if bestaat(b + ".js")]))
+        "index.html", versie=VERSION, modules=MODULES, html=[b + ".html" for b in bestanden],
+        css=[b + ".css" for b in bestanden if bestaat(b + ".css")],
+        js=[b + ".js" for b in bestanden if bestaat(b + ".js")]))
     resp.headers["Cache-Control"] = "no-cache"
     return resp
 
@@ -685,11 +765,12 @@ def photo(name):
 def api_config():
     with get_db() as conn:
         cats = category_names(conn)
+        ents = teller_entiteiten(conn)
     return jsonify(
         title=OPT["title"],
         categories=cats,
-        motoruren=engine_hours(),
-        engine_entity=text(OPT.get("engine_hours_entity")),
+        uren=[{"id": tid, "naam": naam, "waarde": ha_number(ents[tid]), "ingesteld": bool(ents[tid])}
+              for tid, naam, *_ in TELLERS],
         mqtt=bool(MQTT and MQTT.connected),
         email=email_ready(),
         logo=logo_version(),
@@ -721,17 +802,18 @@ def api_entries():
 @app.post("/api/entries")
 def api_entry_create():
     data = entry_from_form(request.form)
-    if "motoruren" not in request.form:
-        data["motoruren"] = engine_hours()   # voor taakintervallen op motoruren
+    if "motoruren" not in request.form:   # standen van de urentellers, voor taakintervallen op uren
+        uren = engine_hours()
+        data["motoruren"], data["generator_uren"] = uren["hoofdmotor"], uren["generator"]
     images = load_images(request.files.getlist("fotos"), request.form.getlist("foto_omschrijving"))
     with get_db() as conn:
         cur = conn.execute(
-            "INSERT INTO entries (datum, categorie, titel, omschrijving, motoruren, kosten, "
+            "INSERT INTO entries (datum, categorie, titel, omschrijving, motoruren, generator_uren, kosten, "
             "uitgevoerd_door, duur_minuten, task_id, created_at, updated_at, ingevoerd_door) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (data["datum"], data["categorie"], data["titel"], data["omschrijving"], data["motoruren"],
-             data["kosten"], data["uitgevoerd_door"], data["duur_minuten"], data["task_id"], now(), now(),
-             current_user()),
+             data["generator_uren"], data["kosten"], data["uitgevoerd_door"], data["duur_minuten"],
+             data["task_id"], now(), now(), current_user()),
         )
         eid = cur.lastrowid
         save_images(conn, eid, images)
@@ -746,16 +828,16 @@ def api_entry_update(eid):
     data = entry_from_form(request.form)
     images = load_images(request.files.getlist("fotos"), request.form.getlist("foto_omschrijving"))
     with get_db() as conn:
-        old = conn.execute("SELECT motoruren, kosten FROM entries WHERE id = ?", (eid,)).fetchone()
-        for k in ("motoruren", "kosten"):
+        old = conn.execute("SELECT motoruren, generator_uren, kosten FROM entries WHERE id = ?", (eid,)).fetchone()
+        for k in ("motoruren", "generator_uren", "kosten"):
             if k not in request.form and old:
                 data[k] = old[k]
         cur = conn.execute(
-            "UPDATE entries SET datum=?, categorie=?, titel=?, omschrijving=?, motoruren=?, kosten=?, "
-            "uitgevoerd_door=?, duur_minuten=?, task_id=?, updated_at=?, gewijzigd_door=? WHERE id=?",
+            "UPDATE entries SET datum=?, categorie=?, titel=?, omschrijving=?, motoruren=?, generator_uren=?, "
+            "kosten=?, uitgevoerd_door=?, duur_minuten=?, task_id=?, updated_at=?, gewijzigd_door=? WHERE id=?",
             (data["datum"], data["categorie"], data["titel"], data["omschrijving"], data["motoruren"],
-             data["kosten"], data["uitgevoerd_door"], data["duur_minuten"], data["task_id"], now(),
-             current_user(), eid),
+             data["generator_uren"], data["kosten"], data["uitgevoerd_door"], data["duur_minuten"],
+             data["task_id"], now(), current_user(), eid),
         )
         if cur.rowcount == 0:
             abort(404, "Logregel niet gevonden")
@@ -851,10 +933,10 @@ def api_task_create():
     d = task_from_json(request.get_json(force=True) or {})
     with get_db() as conn:
         cur = conn.execute(
-            "INSERT INTO tasks (naam, categorie, interval_dagen, interval_uren, notitie, actief, entiteiten) "
-            "VALUES (?,?,?,?,?,?,?)",
-            (d["naam"], d["categorie"], d["interval_dagen"], d["interval_uren"], d["notitie"], d["actief"],
-             d["entiteiten"]),
+            "INSERT INTO tasks (naam, categorie, interval_dagen, interval_uren, interval_generator, notitie, "
+            "actief, entiteiten, stappen) VALUES (?,?,?,?,?,?,?,?,?)",
+            (d["naam"], d["categorie"], d["interval_dagen"], d["interval_uren"], d["interval_generator"],
+             d["notitie"], d["actief"], d["entiteiten"], d["stappen"]),
         )
         tid = cur.lastrowid
     changed()
@@ -865,14 +947,16 @@ def api_task_create():
 def api_task_update(tid):
     d = task_from_json(request.get_json(force=True) or {})
     with get_db() as conn:
-        cur = conn.execute(
-            "UPDATE tasks SET naam=?, categorie=?, interval_dagen=?, interval_uren=?, notitie=?, actief=?, "
-            "entiteiten=? WHERE id=?",
-            (d["naam"], d["categorie"], d["interval_dagen"], d["interval_uren"], d["notitie"],
-             d["actief"], d["entiteiten"], tid),
-        )
-        if cur.rowcount == 0:
+        old = conn.execute("SELECT stappen FROM tasks WHERE id = ?", (tid,)).fetchone()
+        if not old:
             abort(404, "Taak niet gevonden")
+        conn.execute(
+            "UPDATE tasks SET naam=?, categorie=?, interval_dagen=?, interval_uren=?, interval_generator=?, "
+            "notitie=?, actief=?, entiteiten=?, stappen=? WHERE id=?",
+            (d["naam"], d["categorie"], d["interval_dagen"], d["interval_uren"], d["interval_generator"],
+             d["notitie"], d["actief"], d["entiteiten"], d["stappen"], tid),
+        )
+    remove_files(*(stap_bestanden(old["stappen"]) - stap_bestanden(d["stappen"])))   # weggehaalde afbeeldingen
     changed()
     return jsonify(ok=True)
 
@@ -880,8 +964,11 @@ def api_task_update(tid):
 @app.delete("/api/tasks/<int:tid>")
 def api_task_delete(tid):
     with get_db() as conn:
-        if conn.execute("DELETE FROM tasks WHERE id = ?", (tid,)).rowcount == 0:
+        old = conn.execute("SELECT stappen FROM tasks WHERE id = ?", (tid,)).fetchone()
+        if not old:
             abort(404, "Taak niet gevonden")
+        conn.execute("DELETE FROM tasks WHERE id = ?", (tid,))
+    remove_files(*stap_bestanden(old["stappen"]))
     if MQTT:
         MQTT.remove_task(tid)
     changed()
@@ -926,6 +1013,76 @@ def api_ha_preview():
     with get_db() as conn:
         ids = entities_for(conn, int(task) if task else None, text(request.args.get("categorie")))
     return jsonify([v for v in (ha_state(e) for e in ids) if v])
+
+
+@app.get("/api/ha/states")
+def api_ha_states():
+    """Actuele status van een paar entiteiten (stappenplan): ?ids=a,b → {id: {waarde, naam, eenheid}}."""
+    ids = entity_list([i for i in (request.args.get("ids") or "").split(",") if i.strip()])
+    return jsonify({e: v for e in ids if (v := ha_state(e))})
+
+
+# domein → (service aan/open, service uit/dicht)
+BEDIENING = {
+    "switch": ("turn_on", "turn_off"), "light": ("turn_on", "turn_off"), "fan": ("turn_on", "turn_off"),
+    "input_boolean": ("turn_on", "turn_off"), "valve": ("open_valve", "close_valve"),
+    "cover": ("open_cover", "close_cover"),
+}
+
+
+@app.post("/api/ha/bedien")
+def api_ha_bedien():
+    """Entiteit uit een stappenplan aan/uit (of open/dicht) zetten: {entity_id, aan: true|false}."""
+    d = request.get_json(force=True) or {}
+    eid = str(d.get("entity_id") or "").strip().lower()
+    domein = eid.split(".")[0]
+    if domein not in BEDIENING:
+        abort(400, f"{eid} kan niet vanuit de app bediend worden")
+    with get_db() as conn:
+        if eid not in bedienbare_entiteiten(conn):
+            abort(400, f"{eid} staat in geen enkel stappenplan op 'bedienen'")
+    if not SUPERVISOR_TOKEN:
+        abort(400, "Geen verbinding met Home Assistant")
+    service = BEDIENING[domein][0 if d.get("aan") else 1]
+    try:
+        r = requests.post(f"{HA_API}/services/{domein}/{service}", headers=ha_headers(),
+                          json={"entity_id": eid}, timeout=10)
+        r.raise_for_status()
+    except Exception as e:  # noqa: BLE001
+        log.warning("Bedienen van %s mislukt: %s", eid, e)
+        abort(400, f"Home Assistant kon {eid} niet bedienen")
+    return jsonify(ha_state(eid))
+
+
+@app.post("/api/stappen/afbeelding")
+def api_stap_afbeelding():
+    """Uitlegafbeelding voor een stap; komt pas in het stappenplan als de taak wordt opgeslagen."""
+    images = load_images(request.files.getlist("foto"))
+    if not images:
+        abort(400, "Geen afbeelding ontvangen")
+    bestand, thumb = write_photo(images[0][0])
+    return jsonify(bestand=bestand, thumb=thumb), 201
+
+
+@app.get("/api/instellingen")
+def api_instellingen():
+    with get_db() as conn:
+        ents = teller_entiteiten(conn)
+    return jsonify(tellers=[{"id": tid, "naam": naam, "entiteit": ents[tid], "waarde": ha_number(ents[tid])}
+                            for tid, naam, *_ in TELLERS])
+
+
+@app.put("/api/instellingen")
+def api_instellingen_opslaan():
+    """Urentellers instellen: {tellers: {hoofdmotor: "sensor.x", generator: ""}}."""
+    tellers = (request.get_json(force=True) or {}).get("tellers") or {}
+    with get_db() as conn:
+        for tid, _, _, _, key in TELLERS:
+            if tid in tellers:
+                ent = entity_list([tellers[tid]] if text(tellers[tid]) else [])
+                meta_set(conn, key, ent[0] if ent else "")
+    changed()
+    return api_instellingen()
 
 
 def category_name_from_json():
@@ -996,12 +1153,13 @@ def api_export():
         rows = entries_with_photos(conn)
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
-    w.writerow(["Datum", "Categorie", "Titel", "Taak", "Omschrijving", "Motoruren",
+    w.writerow(["Datum", "Categorie", "Titel", "Taak", "Omschrijving", "Motoruren", "Generator-uren",
                 "Uitgevoerd door", "Bestede tijd (u:mm)", "Meetwaarden", "Opgeslagen", "Ingevoerd door", "Foto's"])
     for r in rows:
         w.writerow([
             r["datum"], r["categorie"] or "", r["titel"], r["taak_naam"] or "", r["omschrijving"] or "",
             "" if r["motoruren"] is None else str(r["motoruren"]).replace(".", ","),
+            "" if r["generator_uren"] is None else str(r["generator_uren"]).replace(".", ","),
             r["uitgevoerd_door"] or "", fmt_minutes(r["duur_minuten"]), fmt_values(r["waarden"]),
             r["created_at"] or "", r["ingevoerd_door"] or "",
             ", ".join(p["bestand"] + (f' ({p["omschrijving"]})' if p["omschrijving"] else "") for p in r["fotos"]),
@@ -1015,9 +1173,10 @@ def api_export():
 
 # --------------------------------------------------------------------------- PDF
 
-FONT_CANDIDATES = [  # (normaal, vet): Alpine-container, daarna macOS voor lokaal testen
+FONT_CANDIDATES = [  # (normaal, vet): Alpine-container, daarna macOS en Windows voor lokaal testen
     ("/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"),
     ("/System/Library/Fonts/Supplemental/Arial.ttf", "/System/Library/Fonts/Supplemental/Arial Bold.ttf"),
+    ("C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/arialbd.ttf"),
 ]
 STATUS_LABEL = {"achterstallig": "Achterstallig", "binnenkort": "Binnenkort", "onbekend": "Nog niet gelogd",
                 "ok": "In orde", "inactief": "Inactief"}
@@ -1189,10 +1348,10 @@ def api_pdf_task(tid):
         if not t:
             abort(404, "Taak niet gevonden")
         entries = entries_with_photos(conn, "WHERE e.task_id = ?", (tid,))
-    interval = [f"elke {t['interval_dagen']} dagen" if t["interval_dagen"] else None,
-                f"elke {t['interval_uren']:g} motoruren" if t["interval_uren"] else None]
-    volgende = [nl_date(t["volgende_datum"]) if t["volgende_datum"] else None,
-                f"bij {t['volgende_uren']:g} u" if t["volgende_uren"] is not None else None]
+    interval = [f"elke {t['interval_dagen']} dagen" if t["interval_dagen"] else None] + \
+        [f"elke {c['interval']:g} u {c['naam'].lower()}" for c in t["tellers"]]
+    volgende = [nl_date(t["volgende_datum"]) if t["volgende_datum"] else None] + \
+        [f"{c['naam'].lower()} bij {c['volgende']:g} u" for c in t["tellers"] if c["volgende"] is not None]
     sub = " · ".join(x for x in [t["categorie"], " of ".join(i for i in interval if i) or None,
                                  STATUS_LABEL.get(t["status"], t["status"]),
                                  "volgende: " + " of ".join(v for v in volgende if v) if any(volgende) else None] if x)
@@ -1493,14 +1652,19 @@ class MqttBridge:
             **base, "name": f"{s['naam']} uren resterend", "unique_id": f"logboek_taak{tid}_uren",
             "unit_of_measurement": "h", "icon": "mdi:engine",
             "value_template": "{{ value_json.uren_rest }}"} if s["interval_uren"] else None)
+        self._config("sensor", f"taak{tid}_generator", {
+            **base, "name": f"{s['naam']} generator-uren resterend", "unique_id": f"logboek_taak{tid}_generator",
+            "unit_of_measurement": "h", "icon": "mdi:engine",
+            "value_template": "{{ value_json.generator_uren_rest }}"} if s["interval_generator"] else None)
         state = {k: s[k] for k in ("naam", "categorie", "status", "achterstallig", "laatst_datum",
                                    "laatst_uren", "volgende_datum", "dagen_rest", "volgende_uren",
-                                   "uren_rest", "interval_dagen", "interval_uren")}
+                                   "uren_rest", "interval_dagen", "interval_uren", "interval_generator",
+                                   "generator_laatst_uren", "generator_volgende_uren", "generator_uren_rest")}
         self.client.publish(st, json.dumps(state), retain=True)
 
     def remove_task(self, tid):
         for comp, obj in (("sensor", "status"), ("binary_sensor", "achterstallig"),
-                          ("sensor", "dagen"), ("sensor", "uren")):
+                          ("sensor", "dagen"), ("sensor", "uren"), ("sensor", "generator")):
             self._config(comp, f"taak{tid}_{obj}", None)
         self.client.publish(f"{self.BASE}/taak/{tid}", "", retain=True)
         self.known.discard(tid)

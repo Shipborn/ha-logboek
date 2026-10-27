@@ -1,4 +1,5 @@
-// Logboek › Taken: terugkerende onderhoudstaken, de taakdialoog en de geschiedenis per taak.
+// Onderhoud › Taken: terugkerende onderhoudstaken, de taakdialoog en de geschiedenis per taak.
+// Het stappenplan van een taak wordt bewerkt in stappenplan.js en uitgevoerd in uitvoeren.js.
 let TASKS = [], editingTask = null, histTask = null;
 
 tabblad('tasks', {
@@ -20,6 +21,7 @@ const ORDER = {achterstallig: 0, binnenkort: 1, onbekend: 2, ok: 3, inactief: 4}
 const LABEL = {achterstallig: 'Achterstallig', binnenkort: 'Binnenkort', onbekend: 'Nog niet gelogd', ok: 'In orde', inactief: 'Inactief'};
 const statusHtml = t => `<span class="status"><span class="dot"></span>${LABEL[t.status]}</span>`;
 
+// wanneer moet het weer: per interval (dagen, uren per teller); wat het eerst komt telt
 function dueText(t) {
   const parts = [];
   if (t.interval_dagen) {
@@ -28,14 +30,18 @@ function dueText(t) {
     else if (t.dagen_rest === 0) parts.push(`vandaag`);
     else parts.push(`over ${t.dagen_rest} dagen (${fmtDate(t.volgende_datum)})`);
   }
-  if (t.interval_uren) {
-    if (t.volgende_uren == null) parts.push(`elke ${fmtNum(t.interval_uren)} motoruren`);
-    else if (t.uren_rest == null) parts.push(`bij ${fmtNum(t.volgende_uren)} u`);
-    else if (t.uren_rest < 0) parts.push(`${fmtNum(-t.uren_rest)} u te laat (bij ${fmtNum(t.volgende_uren)} u)`);
-    else parts.push(`over ${fmtNum(t.uren_rest)} u (bij ${fmtNum(t.volgende_uren)} u)`);
+  for (const c of t.tellers) {
+    const n = c.naam.toLowerCase();
+    if (c.volgende == null) parts.push(`elke ${fmtNum(c.interval)} u ${n}`);
+    else if (c.rest == null) parts.push(`${n} bij ${fmtNum(c.volgende)} u`);
+    else if (c.rest < 0) parts.push(`${n} ${fmtNum(-c.rest)} u te laat (bij ${fmtNum(c.volgende)} u)`);
+    else parts.push(`${n} over ${fmtNum(c.rest)} u (bij ${fmtNum(c.volgende)} u)`);
   }
   return parts.join(' · ') || 'geen interval';
 }
+
+const laatstText = t => !t.laatst_datum ? 'Log de laatste keer dat dit gedaan is om de teller te starten.'
+  : `Laatst: ${fmtDate(t.laatst_datum)}` + t.tellers.filter(c => c.laatst != null).map(c => ` · ${c.naam.toLowerCase()} ${fmtNum(c.laatst)} u`).join('');
 
 // ---------------------------------------------------------------- lijst
 function renderTasks() {
@@ -44,23 +50,26 @@ function renderTasks() {
     : leeg('Nog geen onderhoudstaken.<br>Voeg terugkerend onderhoud toe, zoals olie verversen of impeller vervangen.');
 }
 
+const uitvoerLabel = t => t.stappen.length ? 'Uitvoeren ›' : 'Uitgevoerd';
+
 const taskCard = t => `
   <article class="card s-${t.status}" data-id="${t.id}">
     <div class="taskrow">
       <div class="grow">
-        <div class="meta">${statusHtml(t)} ${chip(t.categorie)}
+        <div class="meta">${statusHtml(t)} ${chip(t.categorie)} ${chip(t.stappen.length && meervoud(t.stappen.length, 'stap', 'stappen'))}
           ${pdfKnop(`api/pdf/task/${t.id}`, 'PDF van deze taak met alle uitvoeringen', true)}</div>
         <h3>${esc(t.naam)}</h3>
         <div class="due">Volgende: ${dueText(t)}</div>
-        <div class="due">${t.laatst_datum ? `Laatst: ${fmtDate(t.laatst_datum)}${t.laatst_uren != null ? ` · ${fmtNum(t.laatst_uren)} u` : ''}`
-          : 'Log de laatste keer dat dit gedaan is om de teller te starten.'}</div>
+        <div class="due">${laatstText(t)}</div>
       </div>
-      ${als(t.actief, `<button class="btn primary" data-done="${t.id}">Uitgevoerd</button>`)}
+      ${als(t.actief, `<button class="btn primary" data-done="${t.id}">${uitvoerLabel(t)}</button>`)}
       <span class="chev" aria-hidden="true">›</span>
     </div>
   </article>`;
 
-const taakUitgevoerd = t => openEntry(null, {task_id: t.id, titel: t.naam, categorie: t.categorie});
+// met stappenplan: stap voor stap uitvoeren; zonder: direct een logregel
+const taakUitgevoerd = t => t.stappen.length ? openUitvoeren(t)
+  : openEntry(null, {task_id: t.id, titel: t.naam, categorie: t.categorie});
 
 $('#tasks').addEventListener('click', ev => {
   if (ev.target.closest('.pdfbtn')) return;
@@ -80,18 +89,31 @@ function openTask(task = null) {
   f.categorie.value = task?.categorie || '';
   f.interval_dagen.value = task?.interval_dagen ?? '';
   f.interval_uren.value = nlNum(task?.interval_uren);
+  f.interval_generator.value = nlNum(task?.interval_generator);
   f.notitie.value = task?.notitie || '';
   f.actief.checked = task ? !!task.actief : true;
+  zetStappen(task?.stappen || []);
   entPicker($('#taskEnts'), task?.entiteiten || []);
+  tellerHint();
   $('#taskDlg').showModal();
 }
+
+// waarschuwing als er een urenteller in de taak staat die in Instellingen nog niet gekoppeld is
+function tellerHint() {
+  const f = $('#taskForm');
+  const mist = (CFG.uren || []).filter(u => !u.ingesteld && f[u.id === 'hoofdmotor' ? 'interval_uren' : 'interval_generator'].value.trim());
+  $('#tellerHint').hidden = !mist.length;
+  $('#tellerHint').textContent = `Voor ${mist.map(u => u.naam.toLowerCase()).join(' en ')} is nog geen sensor gekozen ` +
+    '(Instellingen › Urentellers); dat interval telt pas mee als die is ingesteld.';
+}
+$('#taskForm').addEventListener('input', ev => { if (/^interval_/.test(ev.target.name)) tellerHint(); });
 
 $('#taskForm').addEventListener('submit', async ev => {
   ev.preventDefault();
   const f = ev.target;
   const body = {naam: f.naam.value, categorie: f.categorie.value, interval_dagen: f.interval_dagen.value,
-    interval_uren: f.interval_uren.value, notitie: f.notitie.value, actief: f.actief.checked,
-    entiteiten: $('#taskEnts')._list};
+    interval_uren: f.interval_uren.value, interval_generator: f.interval_generator.value,
+    notitie: f.notitie.value, actief: f.actief.checked, entiteiten: $('#taskEnts')._list, stappen: STAPPEN};
   try {
     await api(editingTask ? 'api/tasks/' + editingTask.id : 'api/tasks', json(editingTask ? 'PUT' : 'POST', body));
     $('#taskDlg').close(); toast('Opgeslagen');
@@ -110,6 +132,7 @@ $('#taskDelete').addEventListener('click', async () => {
 
 // ---------------------------------------------------------------- geschiedenis per taak
 const dayDiff = (a, b) => Math.round((new Date(a + 'T00:00:00') - new Date(b + 'T00:00:00')) / 86400000);
+const gemiddelde = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
 
 async function openHistory(id) {
   histTask = id;
@@ -123,37 +146,41 @@ async function renderHistory() {
   const list = await api('api/entries?task_id=' + t.id);   // nieuwste eerst
   $('#histTitle').textContent = t.naam;
   $('#histDone').hidden = !t.actief;
+  $('#histDone').textContent = uitvoerLabel(t);
 
-  // tussenpozen tussen opeenvolgende uitvoeringen
-  const asc = [...list].reverse(), dGaps = [], hGaps = [];
+  // tussenpozen tussen opeenvolgende uitvoeringen, in dagen en per urenteller van de taak
+  const asc = [...list].reverse(), dGaps = [], hGaps = Object.fromEntries(t.tellers.map(c => [c.id, []]));
   const gap = {};
   for (let i = 1; i < asc.length; i++) {
-    const d = dayDiff(asc[i].datum, asc[i - 1].datum); dGaps.push(d);
-    const g = {d};
-    if (asc[i].motoruren != null && asc[i - 1].motoruren != null) {
-      g.h = Math.round((asc[i].motoruren - asc[i - 1].motoruren) * 10) / 10; hGaps.push(g.h);
+    const g = {d: dayDiff(asc[i].datum, asc[i - 1].datum), h: []};
+    dGaps.push(g.d);
+    for (const c of t.tellers) {
+      const a = asc[i - 1][c.kolom], b = asc[i][c.kolom];
+      if (a != null && b != null) {
+        const h = Math.round((b - a) * 10) / 10;
+        hGaps[c.id].push(h); g.h.push(`+${fmtNum(h)} u ${c.naam.toLowerCase()}`);
+      }
     }
     gap[asc[i].id] = g;
   }
-  const avg = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
   const tijd = list.reduce((s, e) => s + (e.duur_minuten || 0), 0);
-
+  const dGem = gemiddelde(dGaps);
   const stats = [
     [`${list.length}×`, 'uitgevoerd'],
     [tijd ? fmtDur(tijd) : '—', 'totale tijd'],
-    [avg(dGaps) != null ? `${fmtNum(avg(dGaps), 0)} d` : '—', 'gem. tussenpoos' + (t.interval_dagen ? ` (interval ${t.interval_dagen})` : '')],
+    [dGem != null ? `${fmtNum(dGem, 0)} d` : '—', 'gem. tussenpoos' + (t.interval_dagen ? ` (interval ${t.interval_dagen})` : '')],
+    ...t.tellers.map(c => { const g = gemiddelde(hGaps[c.id]);
+      return [g != null ? `${fmtNum(g)} u` : '—', `gem. uren ${c.naam.toLowerCase()} (interval ${fmtNum(c.interval)})`]; }),
   ];
-  if (t.interval_uren || hGaps.length)
-    stats.push([avg(hGaps) != null ? `${fmtNum(avg(hGaps))} u` : '—', 'gem. motoruren' + (t.interval_uren ? ` (interval ${fmtNum(t.interval_uren)})` : '')]);
 
   const body = $('#histBody');
-  const sinds = e => { const g = gap[e.id]; return g ? `+${g.d} dagen${g.h != null ? ` · +${fmtNum(g.h)} u` : ''} sinds vorige` : 'eerste keer gelogd'; };
+  const sinds = e => { const g = gap[e.id]; return g ? [`+${g.d} dagen`, ...g.h].join(' · ') + ' sinds vorige' : 'eerste keer gelogd'; };
   body.innerHTML = `
     <div class="meta s-${t.status}">${statusHtml(t)} ${chip(t.categorie)} <span>Volgende: ${dueText(t)}</span></div>
     ${statsHtml(stats)}
     ${als(t.notitie, `<p class="hnote">${esc(t.notitie)}</p>`)}
     ${list.length ? tijdlijnHtml(body, list, sinds)
-      : leeg('Nog niet uitgevoerd.<br>Tik op <b>Uitgevoerd</b> om de eerste keer te loggen.')}`;
+      : leeg(`Nog niet uitgevoerd.<br>Tik op <b>${uitvoerLabel(t)}</b> om de eerste keer te loggen.`)}`;
 }
 
 $('#histBody').addEventListener('click', tlClick);

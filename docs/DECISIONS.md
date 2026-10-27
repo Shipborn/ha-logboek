@@ -16,3 +16,13 @@
 - **Gewone scripts i.p.v. ES-modules**: de bestaande code gebruikt functies over tabbladen heen (`openEntry`, `TASKS`); met gewone scripts blijft dat werken zonder alles om te bouwen. Nadeel: namen zijn globaal en moeten uniek zijn.
 - Koppeling tussen tabbladen via `tabblad(...)`-hooks, `verversAlles()` en `op`/`meld`, zodat een tabblad niet meer in de DOM van een ander tabblad hoeft te schrijven.
 - `static/*` met `Cache-Control: no-cache` plus `?v=<versie>`, zodat HA na een update geen oude bestanden toont.
+
+## 2026-10-27 – Onderhoud, urentellers en stappenplannen (0.16.0)
+- **Taken en Categorieën in de module Onderhoud** (wens gebruiker); Logboek = alleen logregels. Categorieën gelden nog steeds ook voor logregels.
+- **Urentellers in de database (`meta`) in plaats van app-opties**, zodat ze in de app onder Instellingen staan en zonder herstart wijzigen. Vaste lijst `TELLERS` (hoofdmotor, generator) met eigen kolommen, geen vrije lijst motoren: de gebruiker wilde precies deze twee. Hoofdmotor houdt de oude kolommen (`motoruren`, `interval_uren`) zodat bestaande data en MQTT-sensoren blijven werken.
+- **Een taak kan meerdere intervallen hebben** (dagen, hoofdmotor, generator); de eerste die bereikt wordt bepaalt de status (wens gebruiker).
+- **Stappenplan wordt in de app zelf uitgevoerd**, niet als gegenereerd HA-script met browser_mod (zoals het voorbeeld in `voorbeeld/`): alleen in de app kunnen foto's gemaakt en verplicht worden. De functionaliteit van het script (stappen, uitleg, entiteiten bedienen, gates) is nagebouwd.
+- **Gates als "vereiste status" per entiteit** (off/on/closed/open) in plaats van vrije Jinja-templates zoals in het script: eenvoudig in te stellen in de editor en zonder template-engine in de app.
+- **Bedienen alleen voor entiteiten die in een stappenplan op 'bedienen' staan** en alleen voor schakelbare domeinen: het paneel is ook voor niet-beheerders, dus geen vrije toegang tot alle HA-services.
+- **Afronden maakt automatisch een logregel** (wens gebruiker) via de bestaande `POST api/entries`; geen aparte tabel voor uitvoeringen.
+- **Uitvoering alleen in de browser** tot Afronden (eenvoud). Bewaren van een lopende uitvoering staat als open vraag in STATUS.

@@ -1,0 +1,13 @@
+{% from "gedeeld/macros.html" import dialoog %}
+{# Een taak met stappenplan uitvoeren: stap voor stap, met foto's; Afronden maakt de logregel #}
+{% call dialoog("procDlg", "Uitvoeren", titel_id="procTitle") %}
+<div class="dbody blok" id="procBody"></div>
+<!-- niet "hidden": sommige Android-webviews openen dan geen kiezer; geopend via <label for> -->
+<input type="file" id="procCam" class="vh" accept="image/*" capture="environment" tabindex="-1">
+<input type="file" id="procFile" class="vh" accept="image/*" multiple tabindex="-1">
+<div class="dfoot">
+  <button type="button" class="btn left" id="procTerug">Annuleren</button>
+  <span class="hint" id="procStap"></span>
+  <button type="button" class="btn primary" id="procVerder">Volgende ›</button>
+</div>
+{% endcall %}

@@ -1,4 +1,4 @@
-/* Logboek › Taken */
+/* Onderhoud › Taken */
 .status{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:13px}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--muted)}
 .s-achterstallig .dot{background:var(--bad)} .s-achterstallig .status{color:var(--bad)}
@@ -10,3 +10,8 @@
 .due{font-size:13px;color:var(--muted);margin-top:4px}
 .chev{color:var(--muted);font-size:22px;line-height:1;align-self:center}
 #histBody > .meta{margin-bottom:10px;opacity:1}
+.tellers{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:4px}
+.tellers label{font-weight:400}
+.stapsam{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:14px;margin-top:4px}
+.stapsam span{flex:1;min-width:160px}
+@media (max-width:520px){.tellers{grid-template-columns:1fr}}

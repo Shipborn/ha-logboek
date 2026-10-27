@@ -81,16 +81,18 @@ function zetTeller(tab, n) {
 }
 
 // ---------------------------------------------------------------- navigatie
-// Modules met meer tabbladen hebben een <nav class="tabs" data-mod>; anders is de module zelf het tabblad.
-const tabsVan = mod => { const n = $(`nav.tabs[data-mod="${mod}"]`); return n ? $$('.tab', n).map(b => b.dataset.tab) : [mod]; };
+// Elke module heeft een <nav class="tabs" data-mod> met haar tabbladen (bij één tabblad met data-enkel, niet getoond).
+const tabsVan = mod => $$(`nav.tabs[data-mod="${mod}"] .tab`).map(b => b.dataset.tab);
 const LAATSTE = {};
 function show(mod, tab) {
+  const eigen = $(`.tab[data-tab="${tab}"]`)?.closest('nav').dataset.mod;   // oude links, bijv. #logboek/tasks
+  if (eigen) mod = eigen;
   if (!$(`.mod[data-mod="${mod}"]`)) mod = $('.mod').dataset.mod;
   const tabs = tabsVan(mod);
   if (!tabs.includes(tab)) tab = LAATSTE[mod] || tabs[0];
   LAATSTE[mod] = TAB = tab;
   $$('.mod').forEach(x => x.classList.toggle('active', x.dataset.mod === mod));
-  $$('nav.tabs').forEach(n => n.hidden = n.dataset.mod !== mod);
+  $$('nav.tabs').forEach(n => n.hidden = n.dataset.mod !== mod || n.hasAttribute('data-enkel'));
   $$('.tab').forEach(x => x.classList.toggle('active', x.dataset.tab === tab));
   $$('main > section').forEach(s => s.hidden = s.id !== 'view-' + tab);
   $('#fab').hidden = !TABBLADEN[tab]?.nieuw;
@@ -99,12 +101,17 @@ function show(mod, tab) {
 }
 
 // ---------------------------------------------------------------- opstarten
+// standen van de urentellers (Instellingen) bovenin, bijv. "Hoofdmotor 1.234 u · Generator 56 u"
+function toonUren() {
+  const h = $('#hours'), uren = (CFG.uren || []).filter(u => u.waarde != null);
+  h.hidden = !uren.length;
+  h.textContent = uren.map(u => `${u.naam} ${fmtNum(u.waarde)} u`).join(' · ');
+}
+
 async function loadConfig() {
   CFG = await api('api/config');
   $('#title').textContent = CFG.title; document.title = CFG.title;
-  const h = $('#hours');
-  if (CFG.motoruren != null) { h.hidden = false; h.textContent = `${fmtNum(CFG.motoruren)} motoruren`; }
-  else h.hidden = true;
+  toonUren();
   vulCategorieKeuzes();
   await alle('config', CFG);
 }

@@ -1,0 +1,22 @@
+/* Onderhoud › Taken › Stappenplan bewerken */
+#stapDlg{width:min(760px,calc(100vw - 20px))}
+.stap{border:1px solid var(--line);border-radius:12px;margin-bottom:8px;background:var(--card)}
+.stap.open{border-color:var(--accent)}
+.stapkop{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer}
+.stapkop .nr{width:26px;height:26px;border-radius:50%;background:var(--chip);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex:none}
+.stap.open .nr{background:var(--accent);color:var(--accent-fg)}
+.stapkop .naam{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stapkop .tags{display:flex;gap:4px;flex-wrap:wrap}
+.stapbody{display:flex;flex-direction:column;gap:12px;padding:4px 12px 14px}
+.stapimgs{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.stapents{display:flex;flex-direction:column;gap:6px;margin:4px 0 6px}
+.entrij{display:grid;grid-template-columns:1.4fr 1fr auto 130px auto;gap:6px;align-items:center}
+.entrij label.check{font-weight:400;white-space:nowrap}
+.stapfoto{display:grid;grid-template-columns:1fr 110px;gap:8px 10px}
+.stapfoto .full{grid-column:1/-1}
+#stapAdd{margin-top:4px}
+@media (max-width:420px){.stapkop .tags{display:none}}
+@media (max-width:620px){
+  .entrij{grid-template-columns:1fr 1fr;padding-bottom:8px;border-bottom:1px dashed var(--line)}
+  .stapfoto{grid-template-columns:1fr}
+}

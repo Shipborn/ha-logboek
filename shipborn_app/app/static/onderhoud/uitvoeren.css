@@ -1,0 +1,25 @@
+/* Onderhoud › Taken › Uitvoeren */
+#procDlg{width:min(760px,calc(100vw - 20px))}
+#procDlg .dfoot{align-items:center}
+.procvoortgang{display:flex;gap:4px;margin-bottom:12px}
+.procvoortgang span{flex:1;height:5px;border-radius:3px;background:var(--line)}
+.procvoortgang .klaar{background:var(--ok)}
+.procvoortgang .nu{background:var(--accent)}
+.proctitel{margin:0 0 8px;font-size:18px}
+.uitleg{font-size:15px}
+.uitleg p{margin:0 0 8px}
+.uitleg ul,.uitleg ol{margin:0 0 8px;padding-left:22px}
+.procimgs img{width:120px;height:120px;cursor:zoom-in}
+.procents{display:flex;flex-direction:column;gap:6px;margin:12px 0 8px}
+.procent{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;flex-wrap:wrap}
+.procent .grow{flex:1;min-width:140px;display:flex;flex-direction:column}
+.procent.ok{border-color:var(--ok)}
+.procent.nok{border-color:var(--bad)}
+.alert{border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:8px}
+.alert.good{background:color-mix(in srgb,var(--ok) 14%,transparent);color:var(--ok)}
+.alert.bad{background:color-mix(in srgb,var(--bad) 14%,transparent);color:var(--bad)}
+.procfoto{margin:12px 0}
+.procfoto .photos{margin-top:6px}
+.procnotitie{margin-top:12px}
+.procnotitie textarea{min-height:60px}
+#procTekort{color:var(--bad);margin-top:4px}

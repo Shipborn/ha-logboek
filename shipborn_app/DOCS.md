@@ -2,10 +2,10 @@
 
 Eén paneel in de Home Assistant-zijbalk met modules voor je boot. Bovenin kies je de module:
 
-- **Logboek**: onderhoudslogboek met foto's, terugkerende onderhoudstaken en categorieën.
-- **Onderhoud**: in ontwikkeling.
+- **Logboek**: logregels met foto's.
+- **Onderhoud**: terugkerende onderhoudstaken (met stappenplannen) en categorieën.
 - **Reizen**: in ontwikkeling.
-- **Instellingen**: algemene instellingen, zoals het logo.
+- **Instellingen**: urentellers (hoofdmotor, generator) en logo.
 
 ## Installeren (lokale add-on)
 
@@ -22,7 +22,7 @@ Eén paneel in de Home Assistant-zijbalk met modules voor je boot. Bovenin kies 
 |---|---|
 | `title` | Titel bovenaan het paneel en naam van het apparaat in HA. |
 | `categories` | Alleen de beginlijst bij de eerste start. Daarna beheer je categorieën in het tabblad **Categorieën** van het paneel. |
-| `engine_hours_entity` | Optioneel. Een sensor met de motoruren, bijvoorbeeld `sensor.motoruren`. De actuele stand wordt dan automatisch (onzichtbaar) bij een nieuwe logregel vastgelegd en gebruikt voor intervallen op motoruren. |
+| `engine_hours_entity` | Verouderd. De urentellers stel je nu in de app in (**Instellingen › Urentellers**). Een waarde hier wordt alleen bij de eerste start van 0.16.0 overgenomen als teller voor de hoofdmotor. |
 | `warn_days` / `warn_hours` | Vanaf hoeveel dagen of uren vóór de deadline een taak op **Binnenkort** springt. |
 | `photo_max_px` | Foto's worden verkleind tot maximaal dit aantal pixels aan de lange kant. `0` = origineel formaat bewaren. |
 | `mqtt_enabled` | Sensoren in HA aanmaken via MQTT discovery. |
@@ -39,13 +39,16 @@ Eén paneel in de Home Assistant-zijbalk met modules voor je boot. Bovenin kies 
 Het logboek is voor **alle gebruikers** van Home Assistant beschikbaar, ook zonder beheerdersrechten. Iedereen kan alles in het logboek doen. Bij elke logregel wordt automatisch vastgelegd wie hem heeft ingevoerd (en wie hem het laatst heeft gewijzigd); dat staat bij de logregel, in de PDF, de dagmail en de CSV-export. Na de update: zet **Toon in zijbalk** uit en weer aan, of herstart Home Assistant, zodat gewone gebruikers het item in hun zijbalk zien.
 
 - **Logboek**: tik op **+** voor een nieuwe logregel. Met **Foto maken** open je de camera, met **Uit galerij** kies je bestaande foto's (ook meerdere tegelijk). Foto's worden op de telefoon al verkleind, zodat het uploaden snel gaat. Met de blauwe ✎ op een foto open je de **foto-editor**: vrij tekenen, pijlen, lijnen, rechthoeken, cirkels en tekst, in zes kleuren en drie diktes, met ongedaan maken. Bij een opgeslagen foto blijft het origineel bewaard; met **Origineel herstellen** haal je alle tekeningen weer weg. Naast elke foto kun je een omschrijving typen; die staat onder de foto als je hem groot bekijkt, en in de dagmail en de CSV-export. Tik op een regel om hem te bewerken. Tik op een foto om hem groot te bekijken. Bij **Bestede tijd** vul je in hoe lang het werk duurde, bijvoorbeeld `1:30` of `1,5` (uur) of `45 min`. Elke logregel toont ook wanneer hij is opgeslagen.
-- **Taken**: terugkerend onderhoud met een interval in dagen, motoruren of beide (wat het eerst komt). Met **Uitgevoerd** maak je een logregel aan die aan de taak gekoppeld is, en daarmee start de teller opnieuw.
+- **Onderhoud › Taken**: terugkerend onderhoud. Een taak kan een interval hebben in dagen, in uren van de hoofdmotor en/of in uren van de generator; wat het eerst bereikt is, telt. Met **Uitgevoerd** maak je een logregel aan die aan de taak gekoppeld is, en daarmee starten de tellers opnieuw. Bij elke logregel worden de standen van beide urentellers vastgelegd.
+- **Stappenplan**: in **Taak bewerken › Stappenplan maken** zet je het onderhoud op als een reeks stappen. Per stap: een titel, uitleg (met **\*\*vet\*\***, *\*cursief\** en lijstjes met `-` of `1.`), uitlegafbeeldingen, en eventueel Home Assistant-entiteiten. Bij een entiteit kies je of hij in de stap **bediend** kan worden (aan/uit, of open/dicht bij kleppen) en of hij een bepaalde status **moet** hebben voordat je verder kunt (bijv. pomp uit, afsluiter dicht). Per stap stel je ook in of er tijdens het uitvoeren foto's gevraagd worden of **verplicht** zijn (met een minimum aantal). Stappen kun je toevoegen, verplaatsen en verwijderen.
+- Een taak met stappenplan heeft de knop **Uitvoeren**: je loopt stap voor stap door het plan. **Volgende** werkt pas als de voorwaarden kloppen en de verplichte foto's gemaakt zijn. Per stap kun je een opmerking typen. **Afronden** maakt automatisch een logregel bij de taak met alle foto's (met de stap erbij), de opmerkingen en de bestede tijd. Let op: tot Afronden staat alles alleen in de browser; sluit je de app tussendoor, dan ben je de uitvoering kwijt.
 - Tik op een taak voor de **geschiedenis**: alle keren dat hij is uitgevoerd, met de tussenpozen in dagen en motoruren, totale tijd, foto's en de notitie van de taak. Vanuit daar kun je een logregel openen, de taak bewerken of hem als uitgevoerd loggen. Oude logregels koppel je aan een taak door ze te bewerken en de taak te kiezen.
 - Een nieuwe taak staat op **Nog niet gelogd** tot je de eerste keer logt. Zet dan de datum van de laatste keer dat het onderhoud gedaan is.
 - **Categorieën**: tik op een categorie om al zijn logregels te zien, met de totale tijd. Daar kun je ook direct een nieuwe logregel in die categorie maken. Verder: toevoegen, hernoemen (bestaande logregels en taken gaan mee), volgorde aanpassen met ↑/↓ en verwijderen.
 - **Meetwaarden uit Home Assistant**: koppel bij een taak (in **Taak bewerken**) of een categorie (tik op de categorie) één of meer entiteiten, bijvoorbeeld `sensor.accuspanning`. Bij elke nieuwe logregel met die taak of categorie wordt de actuele waarde automatisch mee opgeslagen en bij de logregel getoond. In het logregelvenster zie je vooraf welke waarden worden vastgelegd. Bewerken van een bestaande logregel verandert de opgeslagen waarden niet.
 - **Dagmail**: staat `email_enabled` aan, dan krijg je elke dag op `email_time` een e-mail met alle logregels die sinds de vorige mail zijn ingevoerd, met foto's. Is er niets ingevoerd, dan komt er geen mail. Met **Testmail sturen** (boven het logboek) verstuur je direct een mail met de logregels van vandaag om de instellingen te controleren.
 - **PDF**: op elke logregel in het **Logboek**, elke taak in **Taken** en elke categorie in **Categorieën** staat een knop **PDF**. Daarmee maak je een PDF van die logregel, van de taak met al zijn uitvoeringen of van alle logregels in de categorie. Met logo, foto's, omschrijvingen, meetwaarden en bestede tijd.
+- **Instellingen › Urentellers**: kies de sensoren met de draaiuren van de hoofdmotor en de generator. De standen staan bovenaan de app.
 - **Instellingen › Logo**: kies een afbeelding (bij voorkeur PNG met transparante achtergrond). Het logo staat dan links naast de titel bovenaan het logboek, bovenaan elke PDF en bovenaan de dagmail. Met **Verwijderen** haal je het weer weg.
 - **CSV exporteren** levert een bestand dat direct in Excel opent.
 

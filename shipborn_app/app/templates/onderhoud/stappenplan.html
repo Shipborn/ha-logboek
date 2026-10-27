@@ -1,0 +1,14 @@
+{% from "gedeeld/macros.html" import dialoog %}
+{# Stappenplan van een taak bewerken; geopend vanuit de taakdialoog, bewaard bij Opslaan van de taak #}
+{% call dialoog("stapDlg", "Stappenplan", titel_id="stapTitle") %}
+<div class="dbody blok">
+  <div id="stapList"></div>
+  <button type="button" class="btn" id="stapAdd">+ Stap toevoegen</button>
+  <!-- niet "hidden": sommige Android-webviews openen dan geen kiezer; geopend via <label for> -->
+  <input type="file" id="stapImgInput" class="vh" accept="image/*" multiple tabindex="-1">
+</div>
+<div class="dfoot">
+  <button type="button" class="btn" data-close>Annuleren</button>
+  <button type="button" class="btn primary" id="stapKlaar">Klaar</button>
+</div>
+{% endcall %}

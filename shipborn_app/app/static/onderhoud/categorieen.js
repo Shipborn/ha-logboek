@@ -1,4 +1,4 @@
-// Logboek › Categorieën: beheer (toevoegen, hernoemen, volgorde, verwijderen) en de logregels per categorie.
+// Onderhoud › Categorieën: beheer (toevoegen, hernoemen, volgorde, verwijderen) en de logregels per categorie.
 let CATS = [], catEdit = null, catView = null;
 
 tabblad('cats', {
