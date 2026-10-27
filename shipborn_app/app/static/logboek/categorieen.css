@@ -1,0 +1,11 @@
+/* Logboek › Categorieën */
+.catadd{display:flex;gap:8px;margin-bottom:12px}
+.catrow{display:flex;align-items:center;gap:8px;cursor:default;padding:8px 10px}
+.catrow .info{flex:1;min-width:0;cursor:pointer}
+.catrow .info:hover .name{text-decoration:underline}
+.catrow .name{font-weight:600;overflow-wrap:anywhere}
+.catrow .use{color:var(--muted);font-size:12px}
+.catrow input{flex:1}
+.catents{margin-bottom:14px}
+.catents h3{font-size:14px;margin:0 0 6px}
+#view-cats > .hint{margin:12px 2px}

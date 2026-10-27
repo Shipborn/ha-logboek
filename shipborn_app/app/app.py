@@ -29,10 +29,10 @@ from zoneinfo import ZoneInfo
 import requests
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
-from flask import Flask, Response, abort, jsonify, request, send_from_directory
+from flask import Flask, Response, abort, jsonify, render_template, request, send_from_directory
 from PIL import Image, ImageOps
 
-VERSION = "0.13.1"
+VERSION = "0.15.0"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("logboek")
@@ -609,9 +609,33 @@ def json_error(e):
     return jsonify(error=getattr(e, "description", str(e))), e.code
 
 
+# Hoofdmenu: module -> tabbladen (id, naam, bestand). Bij een tabblad horen templates/<bestand>.html
+# (weergave + dialogen) en, als ze bestaan, static/<bestand>.css en static/<bestand>.js.
+MODULES = [
+    ("logboek", "Logboek", [("log", "Logboek", "logboek/logregels"),
+                            ("tasks", "Taken", "logboek/taken"),
+                            ("cats", "Categorieën", "logboek/categorieen")]),
+    ("onderhoud", "Onderhoud", [("onderhoud", "Onderhoud", "onderhoud/onderhoud")]),
+    ("reizen", "Reizen", [("reizen", "Reizen", "reizen/reizen")]),
+    ("settings", "Instellingen", [("settings", "Instellingen", "instellingen/instellingen")]),
+]
+
+
 @app.get("/")
 def index():
-    resp = send_from_directory(STATIC_DIR, "index.html")
+    tabs = [t for _, _, ts in MODULES for t in ts]
+    bestaat = lambda f: os.path.exists(os.path.join(STATIC_DIR, f))  # noqa: E731
+    resp = Response(render_template(
+        "index.html", versie=VERSION, modules=MODULES, tabs=tabs,
+        css=[b + ".css" for _, _, b in tabs if bestaat(b + ".css")],
+        js=[b + ".js" for _, _, b in tabs if bestaat(b + ".js")]))
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+@app.get("/static/<path:name>")
+def static_file(name):
+    resp = send_from_directory(STATIC_DIR, name)
     resp.headers["Cache-Control"] = "no-cache"
     return resp
 

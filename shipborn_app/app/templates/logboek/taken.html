@@ -1,0 +1,30 @@
+{% from "gedeeld/macros.html" import dialoog, voet %}
+<section id="view-tasks" hidden>
+  <div id="tasks"></div>
+</section>
+
+{% call dialoog("taskDlg", "Nieuwe taak", titel_id="taskTitle", form_id="taskForm") %}
+<div class="dbody">
+  <label class="full">Naam<input name="naam" required placeholder="Bijv. Motorolie + filter"></label>
+  <label class="full">Categorie<select name="categorie" data-categorieen="—"></select></label>
+  <label>Elke … dagen<input name="interval_dagen" inputmode="numeric" placeholder="bijv. 365"></label>
+  <label>Elke … motoruren<input name="interval_uren" inputmode="decimal" placeholder="bijv. 100"></label>
+  <p class="hint full">Vul één of beide in. Bij beide geldt wat het eerst komt.</p>
+  <label class="full">Notitie<textarea name="notitie" placeholder="Onderdeelnummers, olietype, inhoud…"></textarea></label>
+  <div class="full">
+    <label>Meetwaarden uit Home Assistant <span class="hint">(bij elke nieuwe logregel van deze taak automatisch opgeslagen)</span></label>
+    <div class="entpick" id="taskEnts"></div>
+  </div>
+  <label class="check full"><input type="checkbox" name="actief" checked> Actief</label>
+</div>
+{{ voet(verwijder_id="taskDelete") }}
+{% endcall %}
+
+{# Geschiedenis per taak #}
+{% call dialoog("histDlg", "Geschiedenis", titel_id="histTitle") %}
+<div class="dbody blok" id="histBody"></div>
+<div class="dfoot">
+  <button type="button" class="btn left" id="histEdit">Taak bewerken</button>
+  <button type="button" class="btn primary" id="histDone">Uitgevoerd</button>
+</div>
+{% endcall %}

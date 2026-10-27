@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shipborn App</title>
+<link rel="stylesheet" href="static/gedeeld/basis.css?v={{ versie }}">
+<link rel="stylesheet" href="static/gedeeld/fotos.css?v={{ versie }}">
+{% for f in css %}<link rel="stylesheet" href="static/{{ f }}?v={{ versie }}">
+{% endfor %}
+</head>
+<body>
+<header>
+  <div class="top">
+    <img id="logo" alt="" hidden>
+    <h1 id="title">Shipborn App</h1>
+    <span class="pill" id="hours" hidden></span>
+  </div>
+  <nav class="mods">
+    {% for id, naam, tabs in modules %}<button class="mod" data-mod="{{ id }}">{{ naam }}<span class="count" hidden></span></button>
+    {% endfor %}
+  </nav>
+  {% for id, naam, tabs in modules if tabs|length > 1 %}
+  <nav class="tabs" data-mod="{{ id }}" hidden>
+    {% for tab, tnaam, _ in tabs %}<button class="tab" data-tab="{{ tab }}">{{ tnaam }}<span class="count" hidden></span></button>
+    {% endfor %}
+  </nav>
+  {% endfor %}
+</header>
+
+<main>
+{% for tab, naam, bestand in tabs %}
+{% include bestand + ".html" %}
+{% endfor %}
+</main>
+
+<button class="fab" id="fab" title="Nieuw" aria-label="Nieuw" hidden>+</button>
+{% include "gedeeld/fotos.html" %}
+<datalist id="haEntities"></datalist>
+<div class="toast" id="toast"></div>
+
+{% for f in ["gedeeld/basis.js", "gedeeld/ui.js", "gedeeld/ha.js", "gedeeld/fotos.js"] + js %}<script src="static/{{ f }}?v={{ versie }}"></script>
+{% endfor %}
+<script>start();</script>
+</body>
+</html>

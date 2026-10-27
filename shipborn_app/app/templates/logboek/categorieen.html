@@ -1,0 +1,17 @@
+{% from "gedeeld/macros.html" import dialoog %}
+<section id="view-cats" hidden>
+  <form class="catadd" id="catAdd">
+    <input name="naam" placeholder="Nieuwe categorie, bijv. Dek & beslag" maxlength="60" required>
+    <button class="btn primary" type="submit">Toevoegen</button>
+  </form>
+  <div id="cats"></div>
+  <p class="hint">Bij hernoemen gaan bestaande logregels en taken mee. Bij verwijderen blijven logregels en taken bewaard, maar zonder categorie.</p>
+</section>
+
+{# Logregels per categorie #}
+{% call dialoog("catDlg", "Categorie", titel_id="catTitle") %}
+<div class="dbody blok" id="catBody"></div>
+<div class="dfoot">
+  <button type="button" class="btn primary" id="catNew">Nieuwe logregel</button>
+</div>
+{% endcall %}

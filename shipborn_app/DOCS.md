@@ -1,12 +1,19 @@
-# Logboek
+# Shipborn App
 
-Onderhoudslogboek met foto's en terugkerende onderhoudstaken, als paneel in de Home Assistant-zijbalk. Gemaakt voor bijvoorbeeld een boot, maar bruikbaar voor alles waar je onderhoud van bijhoudt.
+Eén paneel in de Home Assistant-zijbalk met modules voor je boot. Bovenin kies je de module:
+
+- **Logboek**: onderhoudslogboek met foto's, terugkerende onderhoudstaken en categorieën.
+- **Onderhoud**: in ontwikkeling.
+- **Reizen**: in ontwikkeling.
+- **Instellingen**: algemene instellingen, zoals het logo.
 
 ## Installeren (lokale add-on)
 
-1. Zet de map `logboek` in de map `/addons` van Home Assistant. Dat kan met de **Samba share**-add-on (share `addons`) of met de **Terminal & SSH**-add-on. Het resultaat moet `/addons/logboek/config.yaml` zijn.
+1. Zet de map `shipborn_app` in de map `/addons` van Home Assistant. Dat kan met de **Samba share**-add-on (share `addons`) of met de **Terminal & SSH**-add-on. Het resultaat moet `/addons/shipborn_app/config.yaml` zijn.
 2. Ga naar **Instellingen → Add-ons → Add-on Store**, open het menu **⋮** rechtsboven en kies **Controleren op updates**.
-3. Onderaan staat nu **Lokale add-ons → Logboek**. Klik op **Installeren**. De eerste build duurt een paar minuten.
+3. Onderaan staat nu **Lokale add-ons → Shipborn App**. Klik op **Installeren**. De eerste build duurt een paar minuten.
+
+**Bijwerken vanaf Logboek (0.13.x)**: de interne naam (slug `logboek`) is gelijk gebleven, dus het is een gewone update en je gegevens blijven staan. Vervang de oude map `/addons/logboek` door `/addons/shipborn_app` (laat ze niet allebei staan) en kies **Controleren op updates**.
 4. Stel de opties in (zie hieronder) en klik op **Starten**. Zet **Weergeven in zijbalk** aan.
 
 ## Opties

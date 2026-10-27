@@ -1,0 +1,35 @@
+{% from "gedeeld/macros.html" import dialoog, voet %}
+<section id="view-log" hidden>
+  <div class="filters">
+    <input id="q" type="search" placeholder="Zoeken…">
+    <select id="fcat" data-categorieen="Alle categorieën"></select>
+  </div>
+  <div class="summary">
+    <span id="sum"></span>
+    <span><a href="#" id="mailTest" hidden>Testmail sturen</a> <a href="api/export.csv" download>CSV exporteren</a></span>
+  </div>
+  <div id="entries"></div>
+</section>
+
+{% call dialoog("entryDlg", "Nieuwe logregel", titel_id="entryTitle", form_id="entryForm") %}
+<div class="dbody">
+  <label>Datum<input type="date" name="datum" required></label>
+  <label>Categorie<select name="categorie" data-categorieen="—"></select></label>
+  <label class="full">Onderhoudstaak <span class="hint">(optioneel — zet de teller van de taak op nul)</span>
+    <select name="task_id"><option value="">— geen —</option></select></label>
+  <label class="full">Titel<input name="titel" required placeholder="Bijv. impeller koelwaterpomp vervangen"></label>
+  <label>Uitgevoerd door<input name="uitgevoerd_door" placeholder="Zelf, werf, monteur…"></label>
+  <label>Bestede tijd<input name="duur" inputmode="decimal" placeholder="uur:min, bijv. 1:30"></label>
+  <label class="full">Omschrijving<textarea name="omschrijving" placeholder="Wat is er gedaan, gebruikte onderdelen, bevindingen…"></textarea></label>
+  <div class="full" id="entryVals" hidden></div>
+  <p class="full hint" id="entryStamp" hidden></p>
+  <div class="full">
+    <label>Foto's</label>
+    <div class="photos" id="photoList"></div>
+    <!-- niet "hidden": sommige Android-webviews openen dan geen kiezer; geopend via <label for> -->
+    <input type="file" id="camInput" class="vh" accept="image/*" capture="environment" tabindex="-1">
+    <input type="file" id="fileInput" class="vh" accept="image/*" multiple tabindex="-1">
+  </div>
+</div>
+{{ voet(verwijder_id="entryDelete", opslaan_id="entrySave") }}
+{% endcall %}

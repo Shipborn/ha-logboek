@@ -1,0 +1,6 @@
+/* Instellingen */
+.logoset{cursor:default}
+.logoset h3{margin:0 0 4px;font-size:16px}
+.logoprev{margin:12px 0;min-height:60px;display:flex;align-items:center;justify-content:center;background:repeating-conic-gradient(var(--chip) 0 25%, transparent 0 50%) 0 0/16px 16px;border-radius:8px;padding:10px}
+.logoprev img{max-width:100%;max-height:120px}
+.logobtns{display:flex;gap:8px}

@@ -1,0 +1,12 @@
+/* Logboek › Taken */
+.status{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:13px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--muted)}
+.s-achterstallig .dot{background:var(--bad)} .s-achterstallig .status{color:var(--bad)}
+.s-binnenkort .dot{background:var(--warn)} .s-binnenkort .status{color:var(--warn)}
+.s-ok .dot{background:var(--ok)} .s-ok .status{color:var(--ok)}
+.s-inactief{opacity:.6}
+.taskrow{display:flex;gap:10px;align-items:flex-start}
+.taskrow .grow{flex:1;min-width:0}
+.due{font-size:13px;color:var(--muted);margin-top:4px}
+.chev{color:var(--muted);font-size:22px;line-height:1;align-self:center}
+#histBody > .meta{margin-bottom:10px;opacity:1}

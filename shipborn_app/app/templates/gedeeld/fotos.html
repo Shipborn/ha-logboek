@@ -1,0 +1,49 @@
+<!-- Camera in de pagina (HA Android-app) -->
+<dialog id="camDlg">
+  <video playsinline muted autoplay></video>
+  <div class="camfoot">
+    <button type="button" class="btn" id="camCancel">Annuleren</button>
+    <button type="button" class="shutter" id="camShot" aria-label="Foto maken"></button>
+    <span style="min-width:96px"></span>
+  </div>
+</dialog>
+
+<!-- Foto bewerken: tekenen, pijlen, tekst -->
+<dialog id="editor">
+  <div class="edbar">
+    <div class="grp" id="edTools">
+      <button type="button" class="edb on" data-tool="pen" title="Vrij tekenen">✏️</button>
+      <button type="button" class="edb" data-tool="arrow" title="Pijl">➜</button>
+      <button type="button" class="edb" data-tool="line" title="Lijn">╱</button>
+      <button type="button" class="edb" data-tool="rect" title="Rechthoek">▭</button>
+      <button type="button" class="edb" data-tool="ellipse" title="Cirkel">◯</button>
+      <button type="button" class="edb" data-tool="text" title="Tekst">T</button>
+    </div>
+    <span class="sep"></span>
+    <div class="grp" id="edColors"></div>
+    <span class="sep"></span>
+    <div class="grp" id="edSizes">
+      <button type="button" class="edb" data-size="0.6" title="Dun">S</button>
+      <button type="button" class="edb on" data-size="1" title="Normaal">M</button>
+      <button type="button" class="edb" data-size="1.8" title="Dik">L</button>
+    </div>
+    <input id="edText" placeholder="Typ tekst en tik op de foto" hidden>
+  </div>
+  <div class="edwrap"><canvas id="edCanvas"></canvas></div>
+  <div class="edfoot">
+    <button type="button" class="btn" id="edUndo">↶ Ongedaan maken</button>
+    <button type="button" class="btn" id="edClear">Wissen</button>
+    <button type="button" class="btn" id="edRestore" hidden>Origineel herstellen</button>
+    <span class="spacer"></span>
+    <button type="button" class="btn" id="edCancel">Annuleren</button>
+    <button type="button" class="btn primary" id="edSave">Opslaan</button>
+  </div>
+</dialog>
+
+<!-- Foto's groot bekijken -->
+<dialog id="lightbox">
+  <figure><img alt=""><figcaption hidden></figcaption></figure>
+  <button class="nav prev" aria-label="Vorige">‹</button>
+  <button class="nav next" aria-label="Volgende">›</button>
+  <button class="close" aria-label="Sluiten">×</button>
+</dialog>

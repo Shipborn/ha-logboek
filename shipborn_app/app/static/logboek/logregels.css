@@ -1,0 +1,4 @@
+/* Logboek › Logregels */
+.summary{color:var(--muted);font-size:13px;margin:0 2px 10px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.summary a{color:var(--accent);text-decoration:none}
+#mailTest{margin-right:12px}

@@ -1,0 +1,28 @@
+{#- Gedeelde opmaak voor alle tabbladen. Gebruik: {% from "gedeeld/macros.html" import dialoog, voet, binnenkort %} -#}
+
+{#- Dialoog met kop (titel + sluitknop). De inhoud (dbody + voet) komt uit {% call %}.
+    titel_id: id van de <h2> om de titel vanuit JS te wijzigen; form_id: id van het formulier. -#}
+{% macro dialoog(id, titel, titel_id=none, form_id=none) -%}
+<dialog id="{{ id }}">
+  <form{% if form_id %} id="{{ form_id }}"{% endif %} method="dialog">
+    <div class="dhead"><h2{% if titel_id %} id="{{ titel_id }}"{% endif %}>{{ titel }}</h2><button type="button" class="x" data-close>×</button></div>
+    {{ caller() }}
+  </form>
+</dialog>
+{%- endmacro %}
+
+{#- Standaardvoet van een formulierdialoog: (Verwijderen) · Annuleren · Opslaan. -#}
+{% macro voet(verwijder_id=none, opslaan_id=none) -%}
+<div class="dfoot">
+  {% if verwijder_id %}<button type="button" class="btn danger left" id="{{ verwijder_id }}" hidden>Verwijderen</button>{% endif %}
+  <button type="button" class="btn" data-close>Annuleren</button>
+  <button type="submit" class="btn primary"{% if opslaan_id %} id="{{ opslaan_id }}"{% endif %}>Opslaan</button>
+</div>
+{%- endmacro %}
+
+{#- Lege plek voor een module die nog gebouwd wordt. -#}
+{% macro binnenkort(id, naam) -%}
+<section id="view-{{ id }}" hidden>
+  <div class="soon"><h2>{{ naam }}</h2>Deze module is in ontwikkeling.</div>
+</section>
+{%- endmacro %}
