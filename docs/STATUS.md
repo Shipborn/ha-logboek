@@ -1,6 +1,6 @@
 # Status
 
-**Versie 0.17.0** (lokaal, nog niet gecommit). Op GitHub (`Shipborn/ha-logboek`, main, 2026-10-27), zonder de map `voorbeeld/`.
+**Versie 0.17.0**. Op GitHub (`Shipborn/ha-logboek`, main, 2026-11-05). Op GitHub (`Shipborn/ha-logboek`, main, 2026-10-27), zonder de map `voorbeeld/`.
 
 ## Gedaan
 - 0.14.0: omgezet naar Shipborn App met modules.
