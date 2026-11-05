@@ -75,7 +75,7 @@ $('#q').addEventListener('input', () => { clearTimeout(qTimer); qTimer = setTime
 $('#fcat').addEventListener('change', loadEntries);
 
 // ---------------------------------------------------------------- dialoog
-// openEntry(logregel) bewerkt; openEntry(null, {task_id, titel, categorie}) maakt een nieuwe (ook vanuit andere tabbladen)
+// openEntry(logregel) bewerkt; openEntry(null, {task_id, titel, categorie, planning_id}) maakt een nieuwe (ook vanuit andere tabbladen)
 function openEntry(entry = null, preset = {}) {
   editing = entry; pending = []; capEdits = {};
   const f = $('#entryForm'); f.reset();
@@ -85,6 +85,7 @@ function openEntry(entry = null, preset = {}) {
   f.datum.value = v.datum || today();
   f.categorie.value = v.categorie || '';
   f.task_id.value = v.task_id || '';
+  f.planning_id.value = entry ? '' : v.planning_id || '';   // agenda: logregel rondt dit planningspunt af
   if (v.task_id && f.task_id.value === '') {  // inactieve taak: toch tonen
     const t = ALLE_TAKEN.find(t => t.id == v.task_id);
     if (t) { f.task_id.insertAdjacentHTML('beforeend', `<option value="${t.id}">${esc(t.naam)}</option>`); f.task_id.value = t.id; }

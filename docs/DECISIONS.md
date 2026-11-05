@@ -1,5 +1,11 @@
 # Beslissingen
 
+## 2026-11-05 – Agenda (0.17.0)
+- **Eigen module Agenda** (hoofdmenu, tussen Onderhoud en Reizen) met maandkalender en daglijst eronder; maandraster werkt ook op de telefoon (gekleurde balkjes i.p.v. tekst).
+- **Aparte tabel `planning`** in plaats van een geplande datum op de taak: een taak kan meerdere keren gepland worden, en losse punten zonder taak (afspraken) zijn ook mogelijk. Bij verwijderen van een taak blijft het punt staan (titel is een kopie van de taaknaam).
+- **Afronden via de logregel**: geen aparte "gedaan"-status voor geplande taken; een nieuwe logregel bij de taak rondt het geplande punt af (gekozen punt, anders het oudste open punt van die taak). Wordt die logregel verwijderd, dan staat het punt weer open (`entry_id` → NULL). Losse punten worden afgevinkt.
+- **Verwachte datum uit het interval** wordt alleen getoond (niet opgeslagen) en verdwijnt zodra de taak is ingepland; intervallen op uren hebben geen datum en staan niet in de agenda.
+
 ## 2026-10-26 – Logboek wordt een module van Shipborn App (0.14.0)
 - **Eén HA-app met modules als hoofdmenu**, niet een repository met losse apps. Eén paneel, één database, één set opties; modules delen logo en instellingen.
 - **Slug blijft `logboek`.** In Home Assistant hoort een slug bij een app, niet bij een tabblad; tabbladen hebben geen eigen slug. Een nieuwe slug (`shipborn`) installeert een nieuwe app met een lege `/data`, dus zonder migratie raak je de database kwijt. Met dezelfde slug is de omzetting een gewone update. Om dezelfde reden blijven `/share/logboek`, `logboek.db` en de MQTT-topics `logboek/...` gelijk. Overstappen op een andere slug kan later met een migratie (bijv. via de databasekopie in `/share/logboek/backup`).

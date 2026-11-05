@@ -61,6 +61,7 @@ const taskCard = t => `
         <h3>${esc(t.naam)}</h3>
         <div class="due">Volgende: ${dueText(t)}</div>
         <div class="due">${laatstText(t)}</div>
+        ${als(t.gepland_datum, `<div class="due gepland">📅 Ingepland op ${fmtDate(t.gepland_datum)}</div>`)}
       </div>
       ${als(t.actief, `<button class="btn primary" data-done="${t.id}">${uitvoerLabel(t)}</button>`)}
       <span class="chev" aria-hidden="true">›</span>
@@ -176,7 +177,8 @@ async function renderHistory() {
   const body = $('#histBody');
   const sinds = e => { const g = gap[e.id]; return g ? [`+${g.d} dagen`, ...g.h].join(' · ') + ' sinds vorige' : 'eerste keer gelogd'; };
   body.innerHTML = `
-    <div class="meta s-${t.status}">${statusHtml(t)} ${chip(t.categorie)} <span>Volgende: ${dueText(t)}</span></div>
+    <div class="meta s-${t.status}">${statusHtml(t)} ${chip(t.categorie)} <span>Volgende: ${dueText(t)}</span>
+      ${als(t.gepland_datum, `<span>📅 ingepland op ${fmtDate(t.gepland_datum)}</span>`)}</div>
     ${statsHtml(stats)}
     ${als(t.notitie, `<p class="hnote">${esc(t.notitie)}</p>`)}
     ${list.length ? tijdlijnHtml(body, list, sinds)
@@ -184,6 +186,7 @@ async function renderHistory() {
 }
 
 $('#histBody').addEventListener('click', tlClick);
+$('#histPlan').addEventListener('click', () => openPlanning(null, {task_id: histTask}));
 $('#histEdit').addEventListener('click', () => openTask(TASKS.find(x => x.id === histTask)));
 $('#histDone').addEventListener('click', () => taakUitgevoerd(TASKS.find(x => x.id === histTask)));
 $('#histDlg').addEventListener('close', () => { histTask = null; });

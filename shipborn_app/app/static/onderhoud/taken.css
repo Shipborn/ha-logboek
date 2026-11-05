@@ -8,6 +8,7 @@
 .taskrow{display:flex;gap:10px;align-items:flex-start}
 .taskrow .grow{flex:1;min-width:0}
 .due{font-size:13px;color:var(--muted);margin-top:4px}
+.due.gepland{color:var(--warn);font-weight:600}
 .chev{color:var(--muted);font-size:22px;line-height:1;align-self:center}
 #histBody > .meta{margin-bottom:10px;opacity:1}
 .tellers{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:4px}

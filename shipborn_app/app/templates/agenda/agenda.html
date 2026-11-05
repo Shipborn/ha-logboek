@@ -1,0 +1,25 @@
+{% from "gedeeld/macros.html" import dialoog, voet %}
+<section id="view-agenda" hidden>
+  <div class="agkop">
+    <button type="button" class="ib" id="agVorige" title="Vorige maand" aria-label="Vorige maand">‹</button>
+    <h2 id="agMaand"></h2>
+    <button type="button" class="ib" id="agVolgende" title="Volgende maand" aria-label="Volgende maand">›</button>
+    <button type="button" class="btn" id="agVandaag">Vandaag</button>
+  </div>
+  <div class="aglegenda"><span class="ag-log">Logregel</span><span class="ag-plan">Gepland</span><span class="ag-verwacht">Verwacht volgens interval</span></div>
+  <div class="agweek"><span>ma</span><span>di</span><span>wo</span><span>do</span><span>vr</span><span>za</span><span>zo</span></div>
+  <div class="agrid" id="agGrid"></div>
+  <div id="agDag"></div>
+</section>
+
+{% call dialoog("planDlg", "Inplannen", titel_id="planTitle", form_id="planForm") %}
+<div class="dbody">
+  <label>Datum<input type="date" name="datum" required></label>
+  <label>Onderhoudstaak<select name="task_id"><option value="">— los punt —</option></select></label>
+  <label class="full">Titel <span class="hint" id="planTitelHint">(leeg = naam van de taak)</span><input name="titel" placeholder="Bijv. werf bellen voor hellingafspraak"></label>
+  <label class="full">Notitie<textarea name="notitie" placeholder="Afspraken, onderdelen bestellen, wie doet het…"></textarea></label>
+  <label class="check full" id="planAfvinken"><input type="checkbox" name="afgevinkt"> Gedaan</label>
+  <p class="full hint" id="planGedaan" hidden></p>
+</div>
+{{ voet(verwijder_id="planDelete") }}
+{% endcall %}

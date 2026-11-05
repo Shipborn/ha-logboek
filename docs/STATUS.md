@@ -1,6 +1,6 @@
 # Status
 
-**Versie 0.16.0**, werkmap `261027`. Op GitHub (`Shipborn/ha-logboek`, main, 2026-10-27), zonder de map `voorbeeld/`.
+**Versie 0.17.0** (lokaal, nog niet gecommit). Op GitHub (`Shipborn/ha-logboek`, main, 2026-10-27), zonder de map `voorbeeld/`.
 
 ## Gedaan
 - 0.14.0: omgezet naar Shipborn App met modules.
@@ -13,11 +13,14 @@
   - **Uitvoeren** van een stappenplan: stap voor stap, Volgende geblokkeerd tot voorwaarden en verplichte foto's in orde zijn, opmerkingen per stap; Afronden maakt automatisch een logregel met foto's, opmerkingen en bestede tijd.
 - Lokaal getest met nep-HA (`tools/nep_ha.py`) op een kopie van de 0.15-testdatabase: migratie, urentellers instellen, taak met stappenplan maken (incl. afbeelding), uitvoeren met blokkade, bedienen, verplichte foto's, afronden, status/dueText daarna, PDF en CSV, weigering van bedienen buiten een stappenplan.
 
+- 0.17.0: module **Agenda**: maandkalender met logregels, geplande taken/losse punten en verwachte datums volgens interval; inplannen, afvinken, uitvoeren vanuit de agenda (logregel rondt het punt af). Taken tonen "Ingepland op", Inplannen in de taakgeschiedenis. Lokaal getest (desktop en 375 px breed) met nep-HA: inplannen, uitvoeren met koppeling, automatische koppeling bij loggen buiten de agenda, afvinken, teller, validatie.
+
 ## Niet gedaan / niet getest
 - Niet getest in Home Assistant zelf (ingress, echte kleppen/schakelaars, update vanaf 0.13.1/0.15.0) en niet in de HA Android-app (camera in de pagina bij Uitvoeren en bij uitlegafbeeldingen).
 - Een lopende uitvoering wordt niet bewaard: pagina sluiten = foto's en voortgang kwijt.
 - Uitlegafbeeldingen die geüpload zijn in een stappenplan dat daarna niet wordt opgeslagen, blijven als losse bestanden in `/share/logboek/photos` staan.
 - Het stappenplan staat niet in de taak-PDF.
+- Agenda: niet in HA/Android getest; geen MQTT-sensor of HA-kalender voor geplande punten; geen herhalende planning; intervallen op uren staan niet in de agenda (geen datum).
 - `voorbeeld/Wierpot Aft schoonmaken.yaml` (voorbeeld van de gebruiker) staat alleen in de werkmap; bij publiceren naar GitHub weglaten.
 
 ## Volgende stappen
