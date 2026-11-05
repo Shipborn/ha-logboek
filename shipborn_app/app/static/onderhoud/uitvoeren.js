@@ -11,8 +11,8 @@ const KNOP_TEKST = {valve: ['Open', 'Dicht'], cover: ['Open', 'Dicht']};   // ov
 $('#procDlg .x').removeAttribute('data-close');   // sluiten loopt via stopUitvoeren (vraagt bevestiging)
 if (HA_ANDROID) $('#procFile').removeAttribute('multiple');
 
-function openUitvoeren(t, planning_id = null) {   // planning_id: vanuit de agenda
-  PROC = {taak: t, planning_id, i: 0, start: Date.now(), fotos: t.stappen.map(() => []), notities: t.stappen.map(() => ''),
+function openUitvoeren(t) {
+  PROC = {taak: t, i: 0, start: Date.now(), fotos: t.stappen.map(() => []), notities: t.stappen.map(() => ''),
           states: {}, bezig: false};
   renderProc();
   $('#procDlg').showModal();
@@ -172,7 +172,6 @@ async function afronden() {
   fd.append('datum', today());
   fd.append('categorie', t.categorie || '');
   fd.append('task_id', t.id);
-  if (PROC.planning_id) fd.append('planning_id', PROC.planning_id);
   fd.append('titel', t.naam);
   fd.append('duur', durInput(Math.max(1, Math.round((Date.now() - PROC.start) / 60000))));
   const opmerkingen = t.stappen.map((s, i) => PROC.notities[i].trim() && `Stap ${i + 1} – ${s.titel}: ${PROC.notities[i].trim()}`);

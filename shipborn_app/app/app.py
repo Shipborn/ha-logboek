@@ -32,7 +32,7 @@ from fpdf.enums import XPos, YPos
 from flask import Flask, Response, abort, jsonify, render_template, request, send_from_directory
 from PIL import Image, ImageOps
 
-VERSION = "0.17.0"
+VERSION = "0.16.0"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("logboek")
@@ -140,19 +140,6 @@ CREATE TABLE IF NOT EXISTS categories (
     naam TEXT NOT NULL UNIQUE COLLATE NOCASE,
     volgorde INTEGER NOT NULL DEFAULT 0
 );
--- agenda: ingeplande taken of losse punten; gedaan = afgevinkt of gekoppeld aan een logregel
-CREATE TABLE IF NOT EXISTS planning (
-    id INTEGER PRIMARY KEY,
-    datum TEXT NOT NULL,
-    task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
-    titel TEXT NOT NULL,
-    notitie TEXT,
-    afgevinkt INTEGER NOT NULL DEFAULT 0,
-    entry_id INTEGER REFERENCES entries(id) ON DELETE SET NULL,
-    created_at TEXT,
-    ingevoerd_door TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_planning_datum ON planning(datum);
 CREATE INDEX IF NOT EXISTS idx_entries_datum ON entries(datum);
 CREATE INDEX IF NOT EXISTS idx_entries_task ON entries(task_id);
 CREATE INDEX IF NOT EXISTS idx_photos_entry ON photos(entry_id);
@@ -635,9 +622,6 @@ def task_status(conn, t, hours_now, today):
     last = conn.execute(
         "SELECT datum FROM entries WHERE task_id = ? ORDER BY datum DESC, id DESC LIMIT 1", (t["id"],)).fetchone()
     s.update(laatst_datum=last["datum"] if last else None, volgende_datum=None, dagen_rest=None, tellers=[])
-    plan = conn.execute("SELECT datum FROM planning WHERE task_id = ? AND NOT afgevinkt AND entry_id IS NULL "
-                        "ORDER BY datum, id LIMIT 1", (t["id"],)).fetchone()
-    s["gepland_datum"] = plan["datum"] if plan else None
     if t["interval_dagen"] and last:
         volgende = date.fromisoformat(last["datum"]) + timedelta(days=t["interval_dagen"])
         s["volgende_datum"] = volgende.isoformat()
@@ -712,7 +696,6 @@ MODULES = [
     ("logboek", "Logboek", [("log", "Logboek", ["logboek/logregels"])]),
     ("onderhoud", "Onderhoud", [("tasks", "Taken", ["onderhoud/taken", "onderhoud/stappenplan", "onderhoud/uitvoeren"]),
                                 ("cats", "Categorieën", ["onderhoud/categorieen"])]),
-    ("agenda", "Agenda", [("agenda", "Agenda", ["agenda/agenda"])]),
     ("reizen", "Reizen", [("reizen", "Reizen", ["reizen/reizen"])]),
     ("settings", "Instellingen", [("settings", "Instellingen", ["instellingen/instellingen"])]),
 ]
@@ -811,11 +794,6 @@ def api_entries():
     if task:
         clauses.append("e.task_id = ?")
         args.append(int(task))
-    for arg, op in (("van", ">="), ("tot", "<=")):   # datumbereik (agenda)
-        d = text(request.args.get(arg))
-        if d:
-            clauses.append(f"e.datum {op} ?")
-            args.append(iso_date(d))
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     with get_db() as conn:
         return jsonify(entries_with_photos(conn, where, args))
@@ -840,7 +818,6 @@ def api_entry_create():
         eid = cur.lastrowid
         save_images(conn, eid, images)
         capture_values(conn, eid, data["task_id"], data["categorie"])
-        plan_afronden(conn, eid, data["task_id"], text(request.form.get("planning_id")))
         result = entries_with_photos(conn, "WHERE e.id = ?", (eid,))[0]
     changed()
     return jsonify(result), 201
@@ -994,97 +971,6 @@ def api_task_delete(tid):
     remove_files(*stap_bestanden(old["stappen"]))
     if MQTT:
         MQTT.remove_task(tid)
-    changed()
-    return jsonify(ok=True)
-
-
-# --------------------------------------------------------------------------- agenda (planning)
-
-def iso_date(value):
-    try:
-        return date.fromisoformat(value).isoformat()
-    except (TypeError, ValueError):
-        abort(400, "Ongeldige datum")
-
-
-def plan_afronden(conn, entry_id, task_id, planning_id=None):
-    """Nieuwe logregel: het gekozen planningspunt, of anders het oudste open punt van dezelfde taak, is gedaan."""
-    if planning_id:
-        conn.execute("UPDATE planning SET entry_id = ? WHERE id = ? AND entry_id IS NULL", (entry_id, int(planning_id)))
-    elif task_id:
-        conn.execute("UPDATE planning SET entry_id = ? WHERE id = (SELECT id FROM planning WHERE task_id = ? "
-                     "AND NOT afgevinkt AND entry_id IS NULL ORDER BY datum, id LIMIT 1)", (entry_id, task_id))
-
-
-def planning_json(row):
-    p = dict(row)
-    p["gedaan"] = bool(p["afgevinkt"] or p["entry_id"])
-    return p
-
-
-def planning_from_json(conn, d):
-    task_id = d.get("task_id") or None
-    taak = None
-    if task_id:
-        taak = conn.execute("SELECT naam FROM tasks WHERE id = ?", (int(task_id),)).fetchone()
-        if not taak:
-            abort(400, "Taak niet gevonden")
-    titel = text(d.get("titel")) or (taak["naam"] if taak else None)
-    if not titel:
-        abort(400, "Kies een taak of vul een titel in")
-    return {"datum": iso_date(text(d.get("datum"))), "task_id": int(task_id) if task_id else None, "titel": titel,
-            "notitie": text((d.get("notitie") or "").replace("\r\n", "\n")), "afgevinkt": 1 if d.get("afgevinkt") else 0}
-
-
-PLAN_SELECT = ("SELECT p.*, t.naam AS taak_naam, t.categorie AS taak_categorie, t.actief AS taak_actief, "
-               "e.datum AS entry_datum FROM planning p LEFT JOIN tasks t ON t.id = p.task_id "
-               "LEFT JOIN entries e ON e.id = p.entry_id")
-
-
-@app.get("/api/planning")
-def api_planning():
-    clauses, args = [], []
-    for arg, op in (("van", ">="), ("tot", "<=")):
-        d = text(request.args.get(arg))
-        if d:
-            clauses.append(f"p.datum {op} ?")
-            args.append(iso_date(d))
-    if request.args.get("open"):
-        clauses.append("NOT p.afgevinkt AND p.entry_id IS NULL")
-    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
-    with get_db() as conn:
-        rows = conn.execute(f"{PLAN_SELECT} {where} ORDER BY p.datum, p.id", args).fetchall()
-    return jsonify([planning_json(r) for r in rows])
-
-
-@app.post("/api/planning")
-def api_planning_create():
-    with get_db() as conn:
-        d = planning_from_json(conn, request.get_json(force=True) or {})
-        cur = conn.execute("INSERT INTO planning (datum, task_id, titel, notitie, afgevinkt, created_at, ingevoerd_door) "
-                           "VALUES (?,?,?,?,?,?,?)", (d["datum"], d["task_id"], d["titel"], d["notitie"],
-                                                      d["afgevinkt"], now(), current_user()))
-        pid = cur.lastrowid
-    changed()
-    return jsonify(id=pid), 201
-
-
-@app.put("/api/planning/<int:pid>")
-def api_planning_update(pid):
-    with get_db() as conn:
-        if not conn.execute("SELECT 1 FROM planning WHERE id = ?", (pid,)).fetchone():
-            abort(404, "Planning niet gevonden")
-        d = planning_from_json(conn, request.get_json(force=True) or {})
-        conn.execute("UPDATE planning SET datum=?, task_id=?, titel=?, notitie=?, afgevinkt=? WHERE id=?",
-                     (d["datum"], d["task_id"], d["titel"], d["notitie"], d["afgevinkt"], pid))
-    changed()
-    return jsonify(ok=True)
-
-
-@app.delete("/api/planning/<int:pid>")
-def api_planning_delete(pid):
-    with get_db() as conn:
-        conn.execute("DELETE FROM planning WHERE id = ?", (pid,))
     changed()
     return jsonify(ok=True)
 
