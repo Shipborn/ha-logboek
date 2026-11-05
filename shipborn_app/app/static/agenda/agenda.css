@@ -1,0 +1,60 @@
+/* Agenda */
+#view-agenda{--ag-plan:var(--warn);--ag-log:var(--accent);--ag-verwacht:var(--muted);--ag-extern:#7a5bc7}
+@media (prefers-color-scheme:dark){#view-agenda{--ag-extern:#b39af0}}
+
+.aghead{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.aghead h2{flex:1;margin:0;font-size:18px;text-align:center}
+.agweek,.aggrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
+.agweek span{text-align:center;font-size:12px;font-weight:600;color:var(--muted);padding:4px 0}
+.aggrid{gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+
+.agdag{background:var(--card);min-height:92px;padding:4px;display:flex;flex-direction:column;gap:2px;cursor:pointer;min-width:0;outline:none}
+.agdag:hover{background:color-mix(in srgb,var(--card),var(--fg) 4%)}
+.agdag:focus-visible{box-shadow:inset 0 0 0 2px var(--accent)}
+.agdag.ander{background:var(--bg)}
+.agdag.ander .nr{opacity:.5}
+.agdag.gekozen{box-shadow:inset 0 0 0 2px var(--accent)}
+.agdag.drop{background:color-mix(in srgb,var(--card),var(--accent) 18%)}
+.agdag .nr{font-size:13px;font-weight:600;width:24px;height:24px;line-height:24px;text-align:center;border-radius:50%;align-self:flex-end}
+.agdag.vandaag .nr{background:var(--accent);color:var(--accent-fg)}
+.agdag .items{display:flex;flex-direction:column;gap:2px;min-width:0}
+
+/* items in het rooster: gekleurde regel met titel */
+.ai{display:block;font-size:11.5px;line-height:1.35;padding:1px 5px;border-radius:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  border-left:3px solid var(--c);background:color-mix(in srgb,var(--card),var(--c) 14%);color:var(--fg)}
+.ai-plan{--c:var(--ag-plan)}
+.ai-plan.laat{--c:var(--bad)}
+.ai-plan.klaar{--c:var(--ok);opacity:.75}
+.ai-log{--c:var(--ag-log)}
+.ai-verwacht{--c:var(--ag-verwacht);border-left-style:dashed;background:transparent;color:var(--muted)}
+.ai-extern{--c:var(--ag-extern)}
+.ai[draggable]{cursor:grab}
+.agdag .meer{font-size:11px;color:var(--muted);padding-left:5px}
+
+.aglegenda{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--muted);margin:8px 2px 14px}
+.aglegenda span{display:inline-flex;align-items:center;gap:5px}
+.aglegenda i{width:10px;height:10px;border-radius:3px;background:var(--c)}
+.aglegenda i.ai-verwacht{background:none;border:1.5px dashed var(--c)}
+
+/* dagoverzicht */
+.agdaghead{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.agdaghead h3{flex:1;margin:0;font-size:16px;min-width:180px}
+.agdaghead h3::first-letter{text-transform:uppercase}
+.agkaart .agsoort{display:inline-block;width:auto;font-weight:600;font-size:12px}
+.agkaart .taskrow{align-items:center}
+.agkaart.extern{cursor:default}
+.agkaart.extern:hover{border-color:var(--line)}
+.agsync{margin:14px 2px 0}
+.agsync .bad{color:var(--bad)}
+.agsync a{color:var(--accent)}
+#planInfo a{color:var(--accent)}
+
+/* telefoon: in het rooster alleen gekleurde streepjes, de titels staan in het dagoverzicht */
+@media (max-width:600px){
+  .agdag{min-height:58px;padding:3px}
+  .agdag .nr{align-self:center;font-size:12px;width:22px;height:22px;line-height:22px}
+  .agdag .items{flex-direction:row;flex-wrap:wrap;justify-content:center;gap:2px}
+  .agdag .ai{width:7px;height:7px;padding:0;border:0;border-radius:50%;font-size:0;background:var(--c);pointer-events:none}
+  .agdag .ai-verwacht{background:none;border:1.5px dashed var(--c)}
+  .agdag .meer{font-size:10px;padding:0;line-height:7px}
+}

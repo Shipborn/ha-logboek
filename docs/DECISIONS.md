@@ -26,3 +26,20 @@
 - **Bedienen alleen voor entiteiten die in een stappenplan op 'bedienen' staan** en alleen voor schakelbare domeinen: het paneel is ook voor niet-beheerders, dus geen vrije toegang tot alle HA-services.
 - **Afronden maakt automatisch een logregel** (wens gebruiker) via de bestaande `POST api/entries`; geen aparte tabel voor uitvoeringen.
 - **Uitvoering alleen in de browser** tot Afronden (eenvoud). Bewaren van een lopende uitvoering staat als open vraag in STATUS.
+
+## 2026-11-05 – Agenda met CalDAV-koppeling (0.17.0)
+- **Rechtstreeks via CalDAV** (keuze gebruiker, optie C) i.p.v. een ICS-abonnement (alleen app → agenda, publieke URL nodig, Google ververst traag) of via de agenda-integraties van HA (kunnen afspraken alleen aanmaken, niet wijzigen/verwijderen). Werkt met iCloud (app-specifiek wachtwoord) en andere CalDAV-servers; Google kwam in 0.18.0.
+- **Eigen kleine CalDAV-client** met requests en ElementTree in plaats van de `caldav`-bibliotheek: die heeft `lxml` nodig, wat op Alpine/armv7 lastig bouwt. Wel `icalendar` en `recurring-ical-events` (pure Python) voor het lezen/schrijven van afspraken en herhalingen.
+- **Inloggegevens als app-opties** (HA-type `password`), niet in de database: de database wordt na elke wijziging naar `/share/logboek/backup` gekopieerd, en `/share` is ook voor andere apps en Samba leesbaar. Kalenderkeuze staat wel in de database (Instellingen › Agenda).
+- **Planning in twee richtingen, logregels één richting**: een logregel is een registratie; die hoort in de app gewijzigd te worden. Bij een wijziging aan beide kanten tegelijk wint de app (eenvoudig en voorspelbaar). Een planning die in de agenda verwijderd wordt, verdwijnt ook uit de app.
+- **Bestaande afspraak als basis bij bijwerken**, zodat herinneringen en andere velden die op de telefoon zijn toegevoegd blijven staan.
+- **Uitvoeren koppelt automatisch**: een logregel bij een taak telt voor de eerstvolgende open planning van die taak, zodat uitvoeren via Taken de planning ook afsluit.
+
+## 2026-11-05 – Google Agenda (0.18.0)
+- **Google Calendar API v3** i.p.v. Google-CalDAV: Google-CalDAV ondersteunt alleen `If-Match` (geen `If-None-Match`), vraagt na de eerste sync om sync-collection en moet apart aangezet worden. De API is beter gedocumenteerd, schrijft herhalingen zelf uit en PATCH laat herinneringen staan.
+- **Eén gezamenlijke vorm voor beide diensten** (`kalender.py`: dezelfde methoden, afspraken als dicts), zodat de sync-logica (wie wint, verwijderen, logregels één kant op) één keer bestaat.
+- **Eigen OAuth-client van de gebruiker** (zoals de Google-integratie van HA zelf): een gedeelde client van Shipborn zou verificatie door Google vragen en is niet nodig voor één boot.
+- **Koppelen door het localhost-adres terug te plakken** (desktop-client, loopback-redirect, PKCE): de device flow ("code invoeren op een ander apparaat") staat de agenda-scope niet toe, en een vaste redirect naar de app kan niet omdat het ingress-adres per sessie verandert. Nadeel: één handmatige kopieerstap.
+- **Token in `/data/google_token.json`** (alleen voor de app leesbaar), niet in de database (die gaat naar `/share`).
+- Gebruiker moet het toestemmingsscherm op **In productie** zetten: in testmodus verlopen vernieuwingssleutels na 7 dagen.
+

@@ -13,6 +13,7 @@
 
 {% call dialoog("entryDlg", "Nieuwe logregel", titel_id="entryTitle", form_id="entryForm") %}
 <div class="dbody">
+  <input type="hidden" name="planning_id">
   <label>Datum<input type="date" name="datum" required></label>
   <label>Categorie<select name="categorie" data-categorieen="—"></select></label>
   <label class="full">Onderhoudstaak <span class="hint">(optioneel — zet de teller van de taak op nul)</span>

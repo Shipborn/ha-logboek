@@ -1,0 +1,36 @@
+{% from "gedeeld/macros.html" import dialoog %}
+<section id="view-agenda" hidden>
+  <div class="aghead">
+    <button type="button" class="ib" id="agVorige" aria-label="Vorige maand" title="Vorige maand">‹</button>
+    <h2 id="agMaand"></h2>
+    <button type="button" class="ib" id="agVolgende" aria-label="Volgende maand" title="Volgende maand">›</button>
+    <button type="button" class="btn" id="agVandaag">Vandaag</button>
+  </div>
+  <div class="agweek"><span>ma</span><span>di</span><span>wo</span><span>do</span><span>vr</span><span>za</span><span>zo</span></div>
+  <div class="aggrid" id="agGrid"></div>
+  <div class="aglegenda">
+    <span><i class="ai-plan"></i>Gepland</span><span><i class="ai-verwacht"></i>Taak verwacht</span>
+    <span><i class="ai-log"></i>Logregel</span><span><i class="ai-extern"></i>Agenda</span>
+  </div>
+  <div id="agDag"></div>
+  <p class="hint agsync" id="agSync"></p>
+</section>
+
+{% call dialoog("planDlg", "Klus plannen", titel_id="planTitle", form_id="planForm") %}
+<div class="dbody">
+  <label>Datum<input type="date" name="datum" required></label>
+  <label>Tijd (leeg: hele dag)<input type="time" name="tijd"></label>
+  <label class="full">Onderhoudstaak <span class="hint">(optioneel — bij uitvoeren telt de taak mee)</span>
+    <select name="task_id"><option value="">— geen —</option></select></label>
+  <label class="full">Titel<input name="titel" placeholder="Bijv. impeller vervangen, werfbezoek…"></label>
+  <label>Duur<input name="duur" inputmode="decimal" placeholder="uur:min, bijv. 1:30"></label>
+  <label class="full">Notitie<textarea name="notitie" placeholder="Wat moet er gebeuren, wie komt er, onderdelen…"></textarea></label>
+  <p class="full hint" id="planInfo" hidden></p>
+</div>
+<div class="dfoot">
+  <button type="button" class="btn danger left" id="planDelete" hidden>Verwijderen</button>
+  <button type="button" class="btn" id="planDone" hidden>Uitgevoerd</button>
+  <button type="button" class="btn" data-close>Annuleren</button>
+  <button type="submit" class="btn primary">Opslaan</button>
+</div>
+{% endcall %}

@@ -67,9 +67,9 @@ const taskCard = t => `
     </div>
   </article>`;
 
-// met stappenplan: stap voor stap uitvoeren; zonder: direct een logregel
-const taakUitgevoerd = t => t.stappen.length ? openUitvoeren(t)
-  : openEntry(null, {task_id: t.id, titel: t.naam, categorie: t.categorie});
+// met stappenplan: stap voor stap uitvoeren; zonder: direct een logregel (planningId: geplande klus uit de agenda)
+const taakUitgevoerd = (t, planningId = null) => t.stappen.length ? openUitvoeren(t, planningId)
+  : openEntry(null, {task_id: t.id, titel: t.naam, categorie: t.categorie, planning_id: planningId});
 
 $('#tasks').addEventListener('click', ev => {
   if (ev.target.closest('.pdfbtn')) return;

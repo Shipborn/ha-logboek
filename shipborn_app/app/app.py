@@ -5,13 +5,16 @@ Onderhoudslogboek met foto's en terugkerende onderhoudstaken.
 Opslag: SQLite in /data, foto's in /share/logboek/photos.
 Koppeling naar HA: motoruren via de Core API, taakstatus via MQTT discovery.
 """
+import base64
 import csv
+import hashlib
 import html
 import io
 import json
 import logging
 import os
 import re
+import secrets
 import sqlite3
 import threading
 import time
@@ -24,6 +27,7 @@ import smtplib
 import ssl
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
+from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
 
 import requests
@@ -32,7 +36,9 @@ from fpdf.enums import XPos, YPos
 from flask import Flask, Response, abort, jsonify, render_template, request, send_from_directory
 from PIL import Image, ImageOps
 
-VERSION = "0.16.0"
+import kalender
+
+VERSION = "0.18.0"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("logboek")
@@ -67,6 +73,11 @@ DEFAULT_OPTIONS = {
     "smtp_username": "",
     "smtp_password": "",
     "smtp_from": "",
+    "caldav_url": "https://caldav.icloud.com/",
+    "caldav_username": "",
+    "caldav_password": "",
+    "google_client_id": "",
+    "google_client_secret": "",
 }
 
 
@@ -140,6 +151,43 @@ CREATE TABLE IF NOT EXISTS categories (
     naam TEXT NOT NULL UNIQUE COLLATE NOCASE,
     volgorde INTEGER NOT NULL DEFAULT 0
 );
+-- Agenda: geplande klussen (eventueel bij een taak); entry_id = de logregel waarmee hij is uitgevoerd
+CREATE TABLE IF NOT EXISTS planning (
+    id INTEGER PRIMARY KEY,
+    datum TEXT NOT NULL,
+    tijd TEXT,
+    duur_minuten INTEGER,
+    titel TEXT NOT NULL,
+    notitie TEXT,
+    task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+    entry_id INTEGER REFERENCES entries(id) ON DELETE SET NULL,
+    uid TEXT NOT NULL,
+    created_at TEXT,
+    updated_at TEXT
+);
+-- koppeling lokaal item (soort plan/log) <-> afspraak in de CalDAV-agenda; gesynct = updated_at bij de laatste sync,
+-- etag "" = in de agenda verwijderd (logregel wordt dan niet opnieuw gezet tot hij gewijzigd wordt)
+CREATE TABLE IF NOT EXISTS agenda_sync (
+    soort TEXT NOT NULL,
+    lokaal_id INTEGER NOT NULL,
+    uid TEXT NOT NULL,
+    href TEXT NOT NULL,
+    etag TEXT,
+    gesynct TEXT,
+    PRIMARY KEY (soort, lokaal_id)
+);
+-- overige afspraken uit de agenda (alleen tonen), bij elke sync opnieuw gevuld
+CREATE TABLE IF NOT EXISTS agenda_extern (
+    uid TEXT,
+    titel TEXT,
+    datum TEXT,
+    einddatum TEXT,
+    tijd TEXT,
+    eindtijd TEXT,
+    locatie TEXT,
+    omschrijving TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_planning_datum ON planning(datum);
 CREATE INDEX IF NOT EXISTS idx_entries_datum ON entries(datum);
 CREATE INDEX IF NOT EXISTS idx_entries_task ON entries(task_id);
 CREATE INDEX IF NOT EXISTS idx_photos_entry ON photos(entry_id);
@@ -241,6 +289,11 @@ def category_names(conn):
 def now():
     # UTC met offset: de container heeft geen tijdzonedata, de browser rekent om naar lokale tijd
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def now_fijn():
+    """Als now(), maar tot op de microseconde: planning.updated_at bepaalt of de agenda bijgewerkt moet worden."""
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
 # --------------------------------------------------------------------------- Home Assistant
@@ -672,6 +725,7 @@ def all_task_status(conn, hours_now):
 
 def changed():
     threading.Thread(target=backup_db, daemon=True).start()
+    AGENDA_WEKKER.set()
     if MQTT:
         threading.Thread(target=MQTT.publish_all, daemon=True).start()
 
@@ -696,6 +750,7 @@ MODULES = [
     ("logboek", "Logboek", [("log", "Logboek", ["logboek/logregels"])]),
     ("onderhoud", "Onderhoud", [("tasks", "Taken", ["onderhoud/taken", "onderhoud/stappenplan", "onderhoud/uitvoeren"]),
                                 ("cats", "Categorieën", ["onderhoud/categorieen"])]),
+    ("agenda", "Agenda", [("agenda", "Agenda", ["agenda/agenda"])]),
     ("reizen", "Reizen", [("reizen", "Reizen", ["reizen/reizen"])]),
     ("settings", "Instellingen", [("settings", "Instellingen", ["instellingen/instellingen"])]),
 ]
@@ -818,6 +873,7 @@ def api_entry_create():
         eid = cur.lastrowid
         save_images(conn, eid, images)
         capture_values(conn, eid, data["task_id"], data["categorie"])
+        plan_uitgevoerd(conn, eid, text(request.form.get("planning_id")), data["task_id"])
         result = entries_with_photos(conn, "WHERE e.id = ?", (eid,))[0]
     changed()
     return jsonify(result), 201
@@ -856,6 +912,8 @@ def api_entry_update(eid):
 def api_entry_delete(eid):
     with get_db() as conn:
         photos = conn.execute("SELECT * FROM photos WHERE entry_id = ?", (eid,)).fetchall()
+        # geplande klus weer open (en opnieuw naar de agenda)
+        conn.execute("UPDATE planning SET entry_id = NULL, updated_at = ? WHERE entry_id = ?", (now_fijn(), eid))
         if conn.execute("DELETE FROM entries WHERE id = ?", (eid,)).rowcount == 0:
             abort(404, "Logregel niet gevonden")
     remove_photo_files(photos)
@@ -1169,6 +1227,474 @@ def api_export():
         mimetype="text/csv",
         headers={"Content-Disposition": f"attachment; filename=logboek-{date.today().isoformat()}.csv"},
     )
+
+
+# --------------------------------------------------------------------------- agenda
+
+DATUM_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+TIJD_RE = re.compile(r"^([01]?\d|2[0-3]):[0-5]\d$")
+
+
+def datum_arg(value, naam="datum"):
+    s = text(value)
+    try:
+        if not s or not DATUM_RE.match(s):
+            raise ValueError
+        return date.fromisoformat(s).isoformat()
+    except ValueError:
+        abort(400, f"Ongeldige {naam}: {value}")
+
+
+def planning_from_json(d, oud=None):
+    """Planning uit JSON; bij PUT mogen velden ontbreken (dan blijft de oude waarde, bijv. alleen datum bij slepen)."""
+    oud = dict(oud) if oud else {}
+    v = lambda k: d[k] if k in d else oud.get(k)  # noqa: E731
+    tijd = text(v("tijd"))
+    if tijd and not TIJD_RE.match(tijd):
+        abort(400, f"Ongeldige tijd: {tijd} (gebruik bijv. 09:30)")
+    task_id = v("task_id")
+    task_id = int(task_id) if text(str(task_id) if task_id is not None else None) else None
+    duur = d.get("duur")
+    duur = "" if duur is None else str(duur)
+    out = {"datum": datum_arg(v("datum")),
+           "tijd": f"{int(tijd.split(':')[0]):02d}:{tijd.split(':')[1]}" if tijd else None,
+           "duur_minuten": minutes(str(duur)) if "duur" in d else oud.get("duur_minuten"),
+           "titel": text(v("titel")), "notitie": text(v("notitie")), "task_id": task_id}
+    with get_db() as conn:
+        if task_id:
+            t = conn.execute("SELECT naam FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            if not t:
+                abort(400, "Onbekende taak")
+            out["titel"] = out["titel"] or t["naam"]
+    if not out["titel"]:
+        abort(400, "Titel is verplicht")
+    return out
+
+
+def planning_rijen(conn, where="", args=()):
+    return [dict(r) for r in conn.execute(
+        "SELECT p.*, t.naam AS taak_naam, t.categorie AS taak_categorie, e.datum AS uitgevoerd_op, "
+        "e.titel AS uitgevoerd_titel FROM planning p LEFT JOIN tasks t ON t.id = p.task_id "
+        f"LEFT JOIN entries e ON e.id = p.entry_id {where} "
+        "ORDER BY p.datum, p.tijd IS NOT NULL, p.tijd, p.id", args)]
+
+
+def plan_uitgevoerd(conn, eid, planning_id, task_id):
+    """Nieuwe logregel: de geplande klus (gekozen, of de eerstvolgende open planning van de taak) is uitgevoerd."""
+    if planning_id:
+        conn.execute("UPDATE planning SET entry_id = ?, updated_at = ? WHERE id = ? AND entry_id IS NULL",
+                     (eid, now_fijn(), int(planning_id)))
+    elif task_id:
+        conn.execute("UPDATE planning SET entry_id = ?, updated_at = ? WHERE id = (SELECT id FROM planning "
+                     "WHERE task_id = ? AND entry_id IS NULL ORDER BY datum, id LIMIT 1)", (eid, now_fijn(), task_id))
+
+
+@app.get("/api/agenda")
+def api_agenda():
+    """Alles tussen van en tot: logregels, planning, verwachte taken (volgende datum) en afspraken uit de agenda."""
+    van, tot = datum_arg(request.args.get("van"), "begindatum"), datum_arg(request.args.get("tot"), "einddatum")
+    if (date.fromisoformat(tot) - date.fromisoformat(van)).days > 120:
+        abort(400, "Periode is te lang (max. 120 dagen)")
+    vandaag = datetime.now(local_tz()).date().isoformat()
+    with get_db() as conn:
+        logs = entries_with_photos(conn, "WHERE e.datum BETWEEN ? AND ?", (van, tot))
+        plan = planning_rijen(conn, "WHERE p.datum BETWEEN ? AND ?", (van, tot))
+        gepland = {r["task_id"] for r in conn.execute(
+            "SELECT DISTINCT task_id FROM planning WHERE entry_id IS NULL AND task_id IS NOT NULL")}
+        verwacht = [{"task_id": t["id"], "naam": t["naam"], "categorie": t["categorie"], "datum": t["volgende_datum"],
+                     "status": t["status"]}
+                    for t in all_task_status(conn, None)
+                    if t["actief"] and t["volgende_datum"] and van <= t["volgende_datum"] <= tot
+                    and t["id"] not in gepland]
+        extern = [dict(r) for r in conn.execute(
+            "SELECT * FROM agenda_extern WHERE datum <= ? AND einddatum >= ? ORDER BY datum, tijd IS NOT NULL, tijd",
+            (tot, van))]
+        te_laat = conn.execute("SELECT COUNT(*) FROM planning WHERE entry_id IS NULL AND datum < ?",
+                               (vandaag,)).fetchone()[0]
+    return jsonify(logregels=logs, planning=plan, verwacht=verwacht, extern=extern, te_laat=te_laat,
+                   vandaag=vandaag, sync=agenda_info())
+
+
+@app.post("/api/planning")
+def api_planning_create():
+    d = planning_from_json(request.get_json(force=True) or {})
+    with get_db() as conn:
+        cur = conn.execute(
+            "INSERT INTO planning (datum, tijd, duur_minuten, titel, notitie, task_id, uid, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (d["datum"], d["tijd"], d["duur_minuten"], d["titel"], d["notitie"], d["task_id"],
+             "shipborn-plan-" + uuid.uuid4().hex, now(), now_fijn()))
+        pid = cur.lastrowid
+        result = planning_rijen(conn, "WHERE p.id = ?", (pid,))[0]
+    changed()
+    return jsonify(result), 201
+
+
+@app.put("/api/planning/<int:pid>")
+def api_planning_update(pid):
+    with get_db() as conn:
+        oud = conn.execute("SELECT * FROM planning WHERE id = ?", (pid,)).fetchone()
+    if not oud:
+        abort(404, "Planning niet gevonden")
+    d = planning_from_json(request.get_json(force=True) or {}, oud)
+    with get_db() as conn:
+        conn.execute("UPDATE planning SET datum=?, tijd=?, duur_minuten=?, titel=?, notitie=?, task_id=?, updated_at=? "
+                     "WHERE id=?", (d["datum"], d["tijd"], d["duur_minuten"], d["titel"], d["notitie"], d["task_id"],
+                                    now_fijn(), pid))
+        result = planning_rijen(conn, "WHERE p.id = ?", (pid,))[0]
+    changed()
+    return jsonify(result)
+
+
+@app.delete("/api/planning/<int:pid>")
+def api_planning_delete(pid):
+    with get_db() as conn:
+        if conn.execute("DELETE FROM planning WHERE id = ?", (pid,)).rowcount == 0:
+            abort(404, "Planning niet gevonden")
+    changed()
+    return jsonify(ok=True)
+
+
+# ---- koppeling met een agenda (iCloud/CalDAV of Google), in twee richtingen voor de planning
+# Planning: wijziging in de app -> agenda; wijziging in de agenda (titel, datum/tijd, notitie) -> app;
+# verwijderd in de agenda -> ook uit de app. Bij een wijziging aan beide kanten wint de app.
+# Logregels (optioneel): alleen app -> agenda, als afspraak van een hele dag.
+# Inloggegevens staan in de app-opties en het Google-token in /data (niet in de database: die gaat naar /share).
+
+AGENDA_LOCK = threading.Lock()
+AGENDA_WEKKER = threading.Event()
+AGENDA_TERUG, AGENDA_VOORUIT = 90, 400   # periode (dagen) die bij elke sync wordt opgehaald
+GOOGLE_TOKEN_PATH = os.path.join(DATA_DIR, "google_token.json")
+GOOGLE_KOPPELEN = {}   # state -> code_verifier van een lopende koppeling
+
+
+def caldav_account():
+    url, user, pw = text(OPT.get("caldav_url")), text(OPT.get("caldav_username")), OPT.get("caldav_password") or ""
+    return kalender.CalDav(url, user, pw, local_tz()) if url and user and pw else None
+
+
+def google_account():
+    cid, sec = text(OPT.get("google_client_id")), text(OPT.get("google_client_secret"))
+    return kalender.Google(cid, sec, GOOGLE_TOKEN_PATH, local_tz()) if cid and sec else None
+
+
+def agenda_dienst(conn):
+    """Gekozen dienst: 'caldav' of 'google' (standaard de dienst waarvan de opties zijn ingevuld)."""
+    d = meta_get(conn, "agenda_dienst")
+    if d in ("caldav", "google"):
+        return d
+    return "google" if google_account() and not caldav_account() else "caldav"
+
+
+def agenda_account(dienst):
+    """De gekozen dienst, of None als die (nog) niet bruikbaar is."""
+    if dienst == "google":
+        g = google_account()
+        return g if g and g.gekoppeld() else None
+    return caldav_account()
+
+
+def agenda_info():
+    with get_db() as conn:
+        dienst = agenda_dienst(conn)
+        status = json.loads(meta_get(conn, "agenda_status") or "null")
+        kal, kal_naam = meta_get(conn, "agenda_kalender") or "", meta_get(conn, "agenda_kalender_naam") or ""
+        logregels = meta_get(conn, "agenda_logregels") == "1"
+    g = google_account()
+    return {"dienst": dienst, "account": agenda_account(dienst) is not None, "kalender": kal, "kalender_naam": kal_naam,
+            "logregels": logregels, "status": status,
+            "caldav": {"ingesteld": caldav_account() is not None, "gebruiker": text(OPT.get("caldav_username")) or "",
+                       "url": text(OPT.get("caldav_url")) or ""},
+            "google": {"ingesteld": g is not None, "gekoppeld": bool(g and g.gekoppeld())}}
+
+
+_APP_LINK = {}
+
+
+def app_link():
+    """Link naar de app in HA (externe URL + ingress), voor in de afspraak; leeg als dat niet bekend is."""
+    if "url" not in _APP_LINK and SUPERVISOR_TOKEN:
+        try:
+            base = (requests.get(f"{HA_API}/config", headers=ha_headers(), timeout=5).json().get("external_url") or "")
+            slug = requests.get(f"{SUPERVISOR_API}/addons/self/info", headers=ha_headers(), timeout=5) \
+                .json()["data"]["slug"]
+            _APP_LINK["url"] = f"{base.rstrip('/')}/hassio/ingress/{slug}" if base else ""
+        except Exception:  # noqa: BLE001
+            _APP_LINK["url"] = ""
+    return _APP_LINK.get("url", "")
+
+
+def plan_velden(p):
+    extra = " · ".join(x for x in (f"taak: {p['taak_naam']}" if p["taak_naam"] else "",
+                                   f"uitgevoerd op {p['uitgevoerd_op']}" if p["uitgevoerd_op"] else "",
+                                   app_link()) if x)
+    return {"titel": ("✓ " if p["entry_id"] else "") + p["titel"], "datum": p["datum"], "tijd": p["tijd"],
+            "duur": p["duur_minuten"],
+            "omschrijving": ((p["notitie"] or "") + kalender.VOET + (f" · {extra}" if extra else "")).strip()}
+
+
+def log_velden(e):
+    regels = [x for x in (
+        e["omschrijving"],
+        f"Categorie: {e['categorie']}" if e["categorie"] else "",
+        f"Taak: {e['taak_naam']}" if e["taak_naam"] else "",
+        f"Uitgevoerd door: {e['uitgevoerd_door']}" if e["uitgevoerd_door"] else "",
+        f"Bestede tijd: {fmt_minutes(e['duur_minuten'])}" if e["duur_minuten"] is not None else "") if x]
+    return {"titel": "Logboek: " + e["titel"], "datum": e["datum"], "tijd": None, "duur": None,
+            "omschrijving": ("\n".join(regels) + kalender.VOET + (f" · {app_link()}" if app_link() else "")).strip()}
+
+
+def agenda_sync():
+    """Eén synchronisatieronde; schrijft de uitkomst in meta.agenda_status. Geeft de status terug."""
+    with get_db() as conn:
+        dav = agenda_account(agenda_dienst(conn))
+        kal = meta_get(conn, "agenda_kalender")
+        logregels = meta_get(conn, "agenda_logregels") == "1"
+    if not dav or not kal:
+        return None
+    with AGENDA_LOCK:
+        try:
+            status = {"ok": True, "fout": None, **_agenda_sync(dav, kal, logregels)}
+        except Exception as e:  # noqa: BLE001
+            log.warning("Agenda synchroniseren mislukt: %s", e, exc_info=not isinstance(e, kalender.AgendaFout))
+            status = {"ok": False, "fout": str(e)}
+        status["tijd"] = now()
+        with get_db() as conn:
+            meta_set(conn, "agenda_status", json.dumps(status))
+    return status
+
+
+def _agenda_sync(dav, kal, logregels):
+    tz = local_tz()
+    vandaag = datetime.now(tz).date()
+    van, tot = vandaag - timedelta(days=AGENDA_TERUG), vandaag + timedelta(days=AGENDA_VOORUIT)
+    hoofden, voorkomens = dav.afspraken(kal, van, tot)
+
+    with get_db() as conn:
+        agid = meta_get(conn, "agenda_id")
+        if not agid:
+            agid = uuid.uuid4().hex[:8]
+            meta_set(conn, "agenda_id", agid)
+        syncs = {(r["soort"], r["lokaal_id"]): dict(r) for r in conn.execute("SELECT * FROM agenda_sync")}
+        plans = {p["id"]: p for p in planning_rijen(conn)}
+        logs = {}
+        if logregels:
+            ids = [lid for (s, lid) in syncs if s == "log"]
+            where = "WHERE e.datum >= ?" + (f" OR e.id IN ({','.join('?' * len(ids))})" if ids else "")
+            logs = {e["id"]: e for e in entries_with_photos(conn, where, [van.isoformat(), *ids])}
+
+    n = {"verstuurd": 0, "opgehaald": 0, "verwijderd": 0}
+
+    def bewaar(sql, args):
+        with get_db() as c:
+            c.execute(sql, args)
+
+    def zet_sync(soort, lid, uid, a, gesynct):
+        bewaar("INSERT INTO agenda_sync (soort, lokaal_id, uid, href, etag, gesynct) VALUES (?,?,?,?,?,?) "
+               "ON CONFLICT(soort, lokaal_id) DO UPDATE SET uid=excluded.uid, href=excluded.href, "
+               "etag=excluded.etag, gesynct=excluded.gesynct", (soort, lid, uid, a["ref"], a["etag"], gesynct))
+
+    def stuur(soort, lid, uid, v, bestaand, gesynct):
+        try:
+            a = dav.opslaan(kal, uid, v, bestaand)
+        except kalender.Conflict:   # intussen gewijzigd in de agenda: de app wint
+            if not bestaand:
+                raise
+            a = dav.opslaan(kal, uid, v, dict(bestaand, etag=None))
+        zet_sync(soort, lid, uid, a, gesynct)
+        n["verstuurd"] += 1
+
+    for soort, lid in sorted(set(syncs) | {("plan", i) for i in plans} | {("log", i) for i in logs}):
+        lokaal = (plans if soort == "plan" else logs).get(lid)
+        s = syncs.get((soort, lid))
+        try:
+            if lokaal is None:                                   # in de app verwijderd (of logregels uitgezet)
+                if s["etag"] != "":
+                    dav.verwijderen(kal, s["href"])
+                    n["verwijderd"] += 1
+                bewaar("DELETE FROM agenda_sync WHERE soort = ? AND lokaal_id = ?", (soort, lid))
+                continue
+            v = plan_velden(lokaal) if soort == "plan" else log_velden(lokaal)
+            if s is None:                                        # nieuw in de app
+                uid = lokaal["uid"] if soort == "plan" else f"shipborn-log-{agid}-{lid}"
+                # stond hij er al (bijv. vorige ronde halverwege afgebroken), dan bijwerken
+                stuur(soort, lid, uid, v, hoofden.get(uid), lokaal["updated_at"])
+                continue
+            gewijzigd = lokaal["updated_at"] != s["gesynct"]
+            if s["etag"] == "":                                  # logregel die in de agenda is weggehaald
+                if gewijzigd:
+                    stuur(soort, lid, s["uid"], v, None, lokaal["updated_at"])
+                continue
+            remote = hoofden.get(s["uid"]) or dav.ophalen(kal, s["href"])   # buiten de periode: los ophalen
+            if remote is None:                                   # in de agenda verwijderd
+                if gewijzigd:
+                    stuur(soort, lid, s["uid"], v, None, lokaal["updated_at"])
+                elif soort == "plan":
+                    bewaar("DELETE FROM planning WHERE id = ?", (lid,))
+                    bewaar("DELETE FROM agenda_sync WHERE soort = ? AND lokaal_id = ?", (soort, lid))
+                    n["opgehaald"] += 1
+                else:
+                    zet_sync(soort, lid, s["uid"], {"ref": s["href"], "etag": ""}, s["gesynct"])
+                continue
+            extern_gewijzigd = remote["etag"] != s["etag"]
+            if gewijzigd or (soort == "log" and extern_gewijzigd):   # app wint; logregels gaan maar één kant op
+                stuur(soort, lid, s["uid"], v, remote, lokaal["updated_at"])
+            elif extern_gewijzigd:                               # in de agenda gewijzigd -> planning bijwerken
+                t = kalender.tijden(remote, tz)
+                titel = remote["titel"].removeprefix("✓").strip() or lokaal["titel"]
+                stamp = now_fijn()
+                bewaar("UPDATE planning SET datum=?, tijd=?, duur_minuten=?, titel=?, notitie=?, updated_at=? "
+                       "WHERE id=?", (t["datum"], t["tijd"], t["duur_minuten"] if t["tijd"] else None, titel,
+                                     text(kalender.zonder_voet(remote["omschrijving"])), stamp, lid))
+                zet_sync(soort, lid, s["uid"], remote, stamp)
+                n["opgehaald"] += 1
+        except kalender.VerbindingsFout:   # inloggen/bereikbaarheid: hele ronde stoppen
+            raise
+        except kalender.AgendaFout as e:
+            log.warning("Agenda: %s %s overgeslagen: %s", soort, lid, e)
+            n["fouten"] = n.get("fouten", 0) + 1
+        except Exception:  # noqa: BLE001
+            log.exception("Agenda: %s %s overgeslagen", soort, lid)
+
+    # overige afspraken (niet van de app) bewaren om te tonen
+    with get_db() as conn:
+        eigen = {r["uid"] for r in conn.execute("SELECT uid FROM agenda_sync")}
+    extern = []
+    for a in voorkomens:
+        if a["uid"] in eigen or a["uid"].startswith("shipborn-"):
+            continue
+        try:
+            t = kalender.tijden(a, tz)
+        except Exception:  # noqa: BLE001
+            continue
+        extern.append((a["uid"], a["titel"] or "(zonder titel)", t["datum"], t["einddatum"], t["tijd"],
+                       t["eindtijd"], a["locatie"] or None, (a["omschrijving"] or "")[:1000] or None))
+    with get_db() as conn:
+        conn.execute("DELETE FROM agenda_extern")
+        conn.executemany("INSERT INTO agenda_extern VALUES (?,?,?,?,?,?,?,?)", extern)
+    n["extern"] = len(extern)
+    return n
+
+
+def agenda_loop():
+    """Synchroniseert elke 5 minuten, en kort na elke wijziging in de app."""
+    time.sleep(5)
+    while True:
+        try:
+            agenda_sync()
+        except Exception:  # noqa: BLE001
+            log.exception("Agenda synchroniseren mislukt")
+        AGENDA_WEKKER.wait(300)
+        if AGENDA_WEKKER.is_set():
+            time.sleep(3)   # meerdere wijzigingen achter elkaar samen versturen
+            AGENDA_WEKKER.clear()
+
+
+def agenda_reset(conn):
+    """Andere dienst of kalender: koppeling opnieuw beginnen (oude afspraken blijven in de vorige kalender staan)."""
+    conn.execute("DELETE FROM agenda_sync")
+    conn.execute("DELETE FROM agenda_extern")
+    meta_set(conn, "agenda_status", "null")
+
+
+@app.get("/api/agenda/kalenders")
+def api_agenda_kalenders():
+    dienst = request.args.get("dienst")
+    if dienst not in ("caldav", "google"):
+        with get_db() as conn:
+            dienst = agenda_dienst(conn)
+    dav = agenda_account(dienst)
+    if not dav:
+        abort(400, "Koppel eerst met Google" if dienst == "google" else
+              "Vul eerst de CalDAV-gegevens in bij de configuratie van de app")
+    try:
+        return jsonify(dav.kalenders())
+    except kalender.AgendaFout as e:
+        abort(400, str(e))
+
+
+@app.get("/api/agenda/instellingen")
+def api_agenda_instellingen():
+    return jsonify(agenda_info())
+
+
+@app.put("/api/agenda/instellingen")
+def api_agenda_instellingen_opslaan():
+    """{dienst, kalender: href/id, kalender_naam, logregels: bool}. Andere dienst of kalender = opnieuw beginnen."""
+    d = request.get_json(force=True) or {}
+    with get_db() as conn:
+        dienst = d.get("dienst") if d.get("dienst") in ("caldav", "google") else agenda_dienst(conn)
+        kal = text(d.get("kalender")) or ""
+        if kal != (meta_get(conn, "agenda_kalender") or "") or dienst != agenda_dienst(conn):
+            agenda_reset(conn)
+        meta_set(conn, "agenda_dienst", dienst)
+        meta_set(conn, "agenda_kalender", kal)
+        meta_set(conn, "agenda_kalender_naam", text(d.get("kalender_naam")) or "")
+        meta_set(conn, "agenda_logregels", "1" if d.get("logregels") else "0")
+    agenda_sync()
+    return jsonify(agenda_info())
+
+
+@app.post("/api/agenda/sync")
+def api_agenda_sync():
+    agenda_sync()
+    return jsonify(agenda_info())
+
+
+@app.post("/api/agenda/google/start")
+def api_google_start():
+    """Begin van het koppelen: adres van de Google-toestemmingspagina (met PKCE)."""
+    g = google_account()
+    if not g:
+        abort(400, "Vul eerst google_client_id en google_client_secret in bij de configuratie van de app")
+    state, verifier = secrets.token_urlsafe(16), secrets.token_urlsafe(48)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    GOOGLE_KOPPELEN.clear()
+    GOOGLE_KOPPELEN[state] = verifier
+    return jsonify(url=g.koppel_url(state, challenge))
+
+
+@app.post("/api/agenda/google/klaar")
+def api_google_klaar():
+    """Afronden: het adres (http://localhost/?code=…&state=…) waar Google naartoe stuurde."""
+    g = google_account()
+    adres = text((request.get_json(force=True) or {}).get("adres")) or ""
+    q = parse_qs(urlsplit(adres).query)
+    if q.get("error"):
+        abort(400, "Google gaf geen toestemming" if q["error"][0] == "access_denied" else f"Google: {q['error'][0]}")
+    code, state = (q.get("code") or [None])[0], (q.get("state") or [None])[0]
+    if not g or not code:
+        abort(400, "Plak het hele adres uit de adresbalk; het begint met http://localhost en bevat code=")
+    verifier = GOOGLE_KOPPELEN.pop(state, None)
+    if not verifier:
+        abort(400, "Deze koppelpoging is verlopen; klik opnieuw op Koppelen met Google")
+    try:
+        g.koppel_af(code, verifier)
+    except kalender.AgendaFout as e:
+        abort(400, str(e))
+    with get_db() as conn:
+        if agenda_dienst(conn) != "google":
+            agenda_reset(conn)
+            meta_set(conn, "agenda_kalender", "")
+        meta_set(conn, "agenda_dienst", "google")
+    return jsonify(agenda_info())
+
+
+@app.post("/api/agenda/google/ontkoppel")
+def api_google_ontkoppel():
+    g = google_account()
+    if g:
+        g.ontkoppel()
+    else:
+        try:
+            os.remove(GOOGLE_TOKEN_PATH)
+        except FileNotFoundError:
+            pass
+    with get_db() as conn:
+        if agenda_dienst(conn) == "google":
+            agenda_reset(conn)
+            meta_set(conn, "agenda_kalender", "")
+    return jsonify(agenda_info())
 
 
 # --------------------------------------------------------------------------- PDF
@@ -1744,6 +2270,7 @@ if __name__ == "__main__":
     MQTT = start_mqtt()
     threading.Thread(target=periodic_refresh, daemon=True).start()
     threading.Thread(target=mail_loop, daemon=True).start()
+    threading.Thread(target=agenda_loop, daemon=True).start()
     from waitress import serve
 
     port = int(os.environ.get("PORT", "8099"))

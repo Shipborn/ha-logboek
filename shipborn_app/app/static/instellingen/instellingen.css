@@ -8,3 +8,15 @@
 @media (max-width:520px){.urenrij{grid-template-columns:1fr auto}.urenrij input{grid-column:1/-1;grid-row:2}}
 .logoprev{margin:12px 0;min-height:60px;display:flex;align-items:center;justify-content:center;background:repeating-conic-gradient(var(--chip) 0 25%, transparent 0 50%) 0 0/16px 16px;border-radius:8px;padding:10px}
 .logoprev img{max-width:100%;max-height:120px}
+#agendaInst{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+#agendaInst .bad{color:var(--bad)}
+#agendaInst .hnote ul{margin:6px 0;padding-left:20px}
+#agendaInst code{font-size:12px}
+.agkal{max-width:420px}
+#agendaInst .hnote{white-space:normal}
+#agendaInst .dienst{display:flex;gap:18px;flex-wrap:wrap}
+#agendaInst .hnote ol{margin:6px 0;padding-left:20px}
+#agendaInst .hnote li{margin-bottom:6px}
+.gkoppel .btn{margin:4px 0}
+.gplak{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap}
+.gplak input{flex:1 1 220px}
